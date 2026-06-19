@@ -126,14 +126,130 @@ async function refresh() {
   hideError();
   const prev = { ...quotes };
   quotes = res.quotes;
-  if (firstLoad) { buildTable(); firstLoad = false; }
-  else           { updateTableCells(); }
+  if (firstLoad) { buildTable(); buildTiles(); firstLoad = false; }
+  else           { updateTableCells(); updateTiles(); }
   renderSummary();
   renderMovers();
   if (Object.keys(sparklines).length === 0) fetchSparklines();
   if (!sentimentFetch) fetchSentiments();
   document.getElementById('last-updated').textContent =
     new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+/* ── Tab switching ── */
+function showTab(tab) {
+  document.getElementById('home-page').classList.toggle('hidden', tab !== 'home');
+  document.getElementById('overview-page').classList.toggle('hidden', tab !== 'overview');
+  document.getElementById('tab-home').classList.toggle('active', tab === 'home');
+  document.getElementById('tab-overview').classList.toggle('active', tab === 'overview');
+}
+
+/* ── Holdings Tiles ── */
+const TILE_THRESHOLD = 750_000;
+
+function majorHoldings() {
+  return sortedRows().filter(r => !isNaN(r.mktValue) && r.mktValue >= TILE_THRESHOLD)
+    .sort((a, b) => b.mktValue - a.mktValue);
+}
+
+function buildTiles() {
+  const grid = document.getElementById('tiles-grid');
+  const rows = majorHoldings();
+  if (!rows.length) {
+    grid.innerHTML = '<div style="color:var(--dim);font-size:13px;padding:40px 0">No positions above $750K yet.</div>';
+    return;
+  }
+  grid.innerHTML = rows.map(r => tileHTML(r)).join('');
+  grid.querySelectorAll('.holding-tile').forEach(el =>
+    el.addEventListener('click', () => openModal(el.dataset.ticker))
+  );
+  // Render sparklines already in cache
+  rows.forEach(r => {
+    if (sparklines[r.ticker]) renderTileSparkline(r.ticker, sparklines[r.ticker]);
+  });
+}
+
+function updateTiles() {
+  const rows = majorHoldings();
+  const grid = document.getElementById('tiles-grid');
+  // Rebuild if tile count changed
+  const existing = grid.querySelectorAll('.holding-tile').length;
+  if (existing !== rows.length) { buildTiles(); return; }
+  rows.forEach(r => {
+    const tile = grid.querySelector(`.holding-tile[data-ticker="${r.ticker}"]`);
+    if (!tile) return;
+    const dc = dirClass(r.change);
+    tile.className = `holding-tile tile-${dc}`;
+    tile.querySelector('.tile-price').textContent = r.price ? fmt$(r.price) : '—';
+    const pill = tile.querySelector('.tile-change-pill');
+    pill.className = `tile-change-pill ${dc}`;
+    pill.textContent = r.changePct != null ? (r.changePct >= 0 ? '+' : '') + r.changePct.toFixed(2) + '%' : '—';
+    tile.querySelector('.tile-day-gain').textContent =
+      isNaN(r.dayGain) ? '—' : (r.dayGain >= 0 ? '+' : '') + fmt$(r.dayGain);
+    tile.querySelector('.tile-day-gain').className = `tile-stat-val ${dc}`;
+    tile.querySelector('.tile-mkt-val').textContent = fmt$(r.mktValue);
+    const pc = dirClass(r.pnl);
+    tile.querySelector('.tile-pnl').textContent =
+      isNaN(r.pnl) ? '—' : (r.pnl >= 0 ? '+' : '') + fmt$(r.pnl);
+    tile.querySelector('.tile-pnl').className = `tile-stat-val ${pc}`;
+    tile.querySelector('.tile-return').textContent =
+      isNaN(r.pnlPct) ? '—' : (r.pnlPct >= 0 ? '+' : '') + r.pnlPct.toFixed(1) + '%';
+    tile.querySelector('.tile-return').className = `tile-stat-val ${pc}`;
+  });
+}
+
+function tileHTML(r) {
+  const dc  = dirClass(r.change);
+  const pc  = dirClass(r.pnl);
+  const pct = r.changePct != null ? (r.changePct >= 0 ? '+' : '') + r.changePct.toFixed(2) + '%' : '—';
+  return `
+    <div class="holding-tile tile-${dc}" data-ticker="${r.ticker}">
+      <div class="tile-header">
+        <div class="tile-badge ${dc}">${r.ticker.slice(0, 4)}</div>
+        <span class="tile-change-pill ${dc}">${pct}</span>
+      </div>
+      <div class="tile-ticker">${r.ticker}</div>
+      <div class="tile-name">${r.shortName || '—'}</div>
+      <div class="tile-price">${r.price ? fmt$(r.price) : '—'}</div>
+      <div class="tile-stats">
+        <div>
+          <div class="tile-stat-label">Day Gain</div>
+          <div class="tile-stat-val ${dc} tile-day-gain">${isNaN(r.dayGain) ? '—' : (r.dayGain >= 0 ? '+' : '') + fmt$(r.dayGain)}</div>
+        </div>
+        <div>
+          <div class="tile-stat-label">Mkt Value</div>
+          <div class="tile-stat-val neutral tile-mkt-val">${fmt$(r.mktValue)}</div>
+        </div>
+        <div>
+          <div class="tile-stat-label">Total Gain</div>
+          <div class="tile-stat-val ${pc} tile-pnl">${isNaN(r.pnl) ? '—' : (r.pnl >= 0 ? '+' : '') + fmt$(r.pnl)}</div>
+        </div>
+        <div>
+          <div class="tile-stat-label">Return</div>
+          <div class="tile-stat-val ${pc} tile-return">${isNaN(r.pnlPct) ? '—' : (r.pnlPct >= 0 ? '+' : '') + r.pnlPct.toFixed(1) + '%'}</div>
+        </div>
+      </div>
+      <div class="tile-spark" id="tile-spark-${r.ticker}">
+        <span style="font-size:10px;color:var(--dim)">Loading chart…</span>
+      </div>
+    </div>`;
+}
+
+function renderTileSparkline(ticker, closes) {
+  const el = document.getElementById(`tile-spark-${ticker}`);
+  if (!el) return;
+  const W = 240, H = 48, P = 3;
+  const min = Math.min(...closes), max = Math.max(...closes);
+  const range = max - min || 1;
+  const dir   = closes[closes.length - 1] >= closes[0] ? 'up' : 'down';
+  const xs = closes.map((_, i) => P + (i / (closes.length - 1)) * (W - P * 2));
+  const ys = closes.map(c => P + (1 - (c - min) / range) * (H - P * 2));
+  const pts  = xs.map((x, i) => `${x},${ys[i]}`).join(' ');
+  const fill = `${pts} ${W - P},${H - P} ${P},${H - P}`;
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" style="display:block">
+    <polygon class="spark-fill ${dir}" points="${fill}"/>
+    <polyline class="spark-line ${dir}" points="${pts}"/>
+  </svg>`;
 }
 
 function startAutoRefresh() {
@@ -348,9 +464,12 @@ async function fetchSparklines() {
     if (res.ok && res.closes?.length > 1) {
       sparklines[pos.ticker] = res.closes;
       renderSparkline(pos.ticker, res.closes);
+      renderTileSparkline(pos.ticker, res.closes);
     } else {
       const el = document.getElementById(`spark-${pos.ticker}`);
       if (el) el.innerHTML = '<span class="spark-loading" style="color:var(--line2)">—</span>';
+      const tel = document.getElementById(`tile-spark-${pos.ticker}`);
+      if (tel) tel.innerHTML = '';
     }
   }));
 }
