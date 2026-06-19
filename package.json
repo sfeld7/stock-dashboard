@@ -1,0 +1,13 @@
+{
+  "name": "stock-dashboard",
+  "version": "1.0.0",
+  "description": "Real-time portfolio stock analyzer",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "vercel dev"
+  },
+  "engines": {
+    "node": "20.x"
+  }
+}

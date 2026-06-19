@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Portfolio Tracker</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- Header -->
+    <header>
+      <div class="header-left">
+        <span class="logo">Portfolio <span>Tracker</span></span>
+        <nav class="nav-tabs">
+          <span class="nav-tab active">Overview</span>
+        </nav>
+        <span id="csv-path" class="csv-path" title="Click to load a different file">No file loaded</span>
+      </div>
+      <div class="header-right">
+        <span id="last-updated" class="timestamp"></span>
+        <div id="market-badge" class="market-badge">
+          <div class="market-dot" id="market-dot"></div>
+          <span id="market-label">—</span>
+        </div>
+        <button id="btn-load" class="btn btn-secondary">Load CSV</button>
+        <button id="btn-refresh" class="btn btn-primary">Refresh</button>
+        <div id="refresh-ring" class="refresh-ring" title="Next auto-refresh">
+          <svg viewBox="0 0 36 36">
+            <circle class="ring-bg"   cx="18" cy="18" r="12"/>
+            <circle id="ring-fill" class="ring-fill" cx="18" cy="18" r="12"/>
+          </svg>
+          <span id="ring-label">30</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Summary bar -->
+    <section id="summary-bar">
+      <div class="summary-main">
+        <div class="summary-label">Total Portfolio Value</div>
+        <div class="summary-total" id="total-value">—</div>
+        <div class="summary-sub">
+          <span id="total-pnl">—</span>
+          <span class="sep">·</span>
+          <span id="total-pct">—</span>
+          <span class="sep">all time</span>
+        </div>
+      </div>
+
+      <div class="summary-stats">
+        <div class="stat-card">
+          <div class="stat-label">Day Gain / Loss</div>
+          <div class="stat-value" id="day-pnl">—</div>
+          <div class="stat-sub" id="day-pct">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Cost Basis</div>
+          <div class="stat-value neutral" id="total-cost">—</div>
+          <div class="stat-sub">amount invested</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Positions</div>
+          <div class="stat-value neutral" id="position-count">—</div>
+          <div class="stat-sub" id="position-sub">—</div>
+        </div>
+      </div>
+
+      <div class="movers-panel">
+        <div class="movers-title">Top Movers</div>
+        <div id="movers-list">
+          <div class="mover-row"><span class="mover-ticker">—</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main table -->
+    <main>
+      <div id="error-banner" class="error-banner hidden"></div>
+      <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <p>Fetching quotes…</p>
+      </div>
+      <table id="portfolio-table">
+        <thead>
+          <tr>
+            <th data-col="symbol">Symbol</th>
+            <th>Today</th>
+            <th>Sentiment</th>
+            <th data-col="price" class="num">Last</th>
+            <th data-col="change" class="num">Change</th>
+            <th data-col="changePct" class="num">Chg %</th>
+            <th data-col="shares" class="num">Shares</th>
+            <th data-col="dayGain" class="num">Day Gain</th>
+            <th data-col="mktValue" class="num">Mkt Value</th>
+            <th data-col="pnl" class="num">Gain / Loss</th>
+            <th data-col="pnlPct" class="num">Return</th>
+            <th data-col="weight" class="num">Weight</th>
+          </tr>
+        </thead>
+        <tbody id="table-body">
+          <tr class="placeholder-row">
+            <td colspan="12">Load a portfolio CSV to get started.</td>
+          </tr>
+        </tbody>
+      </table>
+    </main>
+
+    <!-- Footer -->
+    <footer>
+      <span>Data via Finnhub · StockTwits sentiment · Not financial advice</span>
+      <span id="market-status"></span>
+    </footer>
+
+  </div>
+  <!-- Stock Detail Modal -->
+  <div id="modal-backdrop" class="modal-backdrop hidden">
+    <div id="modal" class="modal">
+
+      <div class="modal-header">
+        <div class="modal-title-row">
+          <div class="modal-badge" id="modal-badge">—</div>
+          <div>
+            <div class="modal-ticker-row">
+              <span id="modal-ticker" class="modal-ticker">—</span>
+              <span id="modal-name" class="modal-name">—</span>
+            </div>
+            <div class="modal-price-row">
+              <span id="modal-price" class="modal-price">—</span>
+              <span id="modal-change-pill" class="pill flat">—</span>
+            </div>
+          </div>
+        </div>
+        <button id="modal-close" class="modal-close" aria-label="Close">&#x2715;</button>
+      </div>
+
+      <div class="modal-tabs">
+        <button class="modal-tab active" data-range="1D">1D</button>
+        <button class="modal-tab" data-range="1W">1W</button>
+        <button class="modal-tab" data-range="1M">1M</button>
+        <button class="modal-tab" data-range="3M">3M</button>
+        <button class="modal-tab" data-range="1Y">1Y</button>
+        <div id="modal-chart-loading" class="modal-chart-loading hidden">
+          <div class="spinner-sm"></div>
+        </div>
+      </div>
+
+      <div class="modal-chart-wrap">
+        <div id="modal-chart" class="modal-chart"></div>
+        <div id="modal-crosshair" class="crosshair hidden">
+          <div class="crosshair-line-v"></div>
+          <div class="crosshair-label" id="crosshair-label"></div>
+        </div>
+      </div>
+
+      <div class="modal-stats" id="modal-stats">
+        <div class="mstat"><div class="mstat-label">Open</div><div class="mstat-val" id="ms-open">—</div></div>
+        <div class="mstat"><div class="mstat-label">High</div><div class="mstat-val up" id="ms-high">—</div></div>
+        <div class="mstat"><div class="mstat-label">Low</div><div class="mstat-val down" id="ms-low">—</div></div>
+        <div class="mstat"><div class="mstat-label">Prev Close</div><div class="mstat-val" id="ms-prev">—</div></div>
+        <div class="mstat"><div class="mstat-label">Your Shares</div><div class="mstat-val neutral" id="ms-shares">—</div></div>
+        <div class="mstat"><div class="mstat-label">Avg Cost</div><div class="mstat-val neutral" id="ms-cost">—</div></div>
+        <div class="mstat"><div class="mstat-label">Mkt Value</div><div class="mstat-val neutral" id="ms-value">—</div></div>
+        <div class="mstat"><div class="mstat-label">Total Gain</div><div class="mstat-val" id="ms-gain">—</div></div>
+        <div class="mstat"><div class="mstat-label">Return</div><div class="mstat-val" id="ms-return">—</div></div>
+      </div>
+
+      <div class="modal-body">
+        <div class="modal-news" id="modal-news">
+          <div class="modal-section-title">Recent News</div>
+          <div id="modal-news-list"><div class="news-loading">Loading…</div></div>
+        </div>
+        <div class="modal-reddit" id="modal-reddit">
+          <div class="modal-section-title">
+            Reddit Sentiment
+            <span id="modal-reddit-score" class="reddit-score-badge"></span>
+          </div>
+          <div id="modal-reddit-list"><div class="news-loading">Loading…</div></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
