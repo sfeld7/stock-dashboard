@@ -1,6 +1,6 @@
 /* ── State ── */
 let portfolios     = [];   // [{ id, name, stocks, cash, _csv }]
-let activeId       = null; // null | 'all' | portfolio id
+let activeIds      = new Set(); // which portfolios are currently checked
 let portfolio      = [];   // current-view stocks (derived)
 let cashPositions  = [];   // current-view cash (derived)
 let quotes         = {};
@@ -58,7 +58,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
 
   if (portfolios.length) {
-    activeId = portfolios.length === 1 ? portfolios[0].id : 'all';
+    portfolios.forEach(p => activeIds.add(p.id)); // start with all checked
     applyActivePortfolio();
     renderPortfolioBar();
     updateCsvPathLabel();
@@ -90,10 +90,8 @@ async function addPortfolioFromCSV(csvText, fileName) {
   const name = (fileName || 'Portfolio').replace(/\.csv$/i, '');
   const id   = 'p' + Date.now() + Math.random().toString(36).slice(2, 6);
   portfolios.push({ id, name, stocks: parsed.stocks, cash: parsed.cash, _csv: csvText });
+  activeIds.add(id); // new portfolio starts checked
   savePortfolios();
-
-  // If first portfolio, select it; if more than one exists, go to All view
-  activeId = portfolios.length === 1 ? id : 'all';
   applyActivePortfolio();
   renderPortfolioBar();
   updateCsvPathLabel();
@@ -109,9 +107,7 @@ async function addPortfolioFromCSV(csvText, fileName) {
 function removePortfolio(id, e) {
   if (e) e.stopPropagation();
   portfolios = portfolios.filter(p => p.id !== id);
-  if (activeId === id) {
-    activeId = portfolios.length === 0 ? null : portfolios.length === 1 ? portfolios[0].id : 'all';
-  }
+  activeIds.delete(id);
   applyActivePortfolio();
   savePortfolios();
   renderPortfolioBar();
@@ -122,9 +118,9 @@ function removePortfolio(id, e) {
   else { buildTable(); buildTiles(); renderSummary(); renderHeroBanner(); }
 }
 
-function selectPortfolio(id) {
-  if (activeId === id) return;
-  activeId = id;
+function togglePortfolio(id) {
+  if (activeIds.has(id)) activeIds.delete(id);
+  else activeIds.add(id);
   applyActivePortfolio();
   renderPortfolioBar();
   firstLoad = true;
@@ -133,14 +129,14 @@ function selectPortfolio(id) {
 }
 
 function applyActivePortfolio() {
-  if (!portfolios.length) { portfolio = []; cashPositions = []; return; }
-  if (activeId === 'all') {
-    portfolio      = mergeStocks(portfolios);
-    cashPositions  = portfolios.flatMap(p => p.cash);
+  const active = portfolios.filter(p => activeIds.has(p.id));
+  if (!active.length) { portfolio = []; cashPositions = []; return; }
+  if (active.length === 1) {
+    portfolio     = active[0].stocks;
+    cashPositions = active[0].cash;
   } else {
-    const p = portfolios.find(x => x.id === activeId);
-    portfolio      = p ? p.stocks : [];
-    cashPositions  = p ? p.cash   : [];
+    portfolio     = mergeStocks(active);
+    cashPositions = active.flatMap(p => p.cash);
   }
 }
 
@@ -176,28 +172,41 @@ function updateCsvPathLabel() {
     : `${portfolios.length} portfolios loaded`;
 }
 
-/* ── Portfolio tabs bar ── */
+/* ── Portfolio checkbox bar ── */
 function renderPortfolioBar() {
   const bar = document.getElementById('portfolio-bar');
   if (!portfolios.length) { bar.classList.add('hidden'); return; }
   bar.classList.remove('hidden');
 
-  let html = '';
-  if (portfolios.length > 1) {
-    const aumVal = calcTotalAUM();
-    html += `<button class="ptab${activeId === 'all' ? ' active' : ''}" onclick="selectPortfolio('all')">
-      All Portfolios <span class="ptab-aum">${fmt$(aumVal)}</span>
-    </button>`;
-  }
-  portfolios.forEach(p => {
-    const active = activeId === p.id;
-    html += `<button class="ptab${active ? ' active' : ''}" onclick="selectPortfolio('${p.id}')">
-      ${escHtml(p.name)}
-      <span class="ptab-x" onclick="removePortfolio('${p.id}',event)">✕</span>
-    </button>`;
-  });
-  html += `<button class="ptab ptab-add" onclick="pickFile()">+ Add Portfolio</button>`;
+  let html = portfolios.map(p => {
+    const checked = activeIds.has(p.id);
+    const val     = calcPortfolioValue(p);
+    return `<div class="pcheck-item${checked ? ' checked' : ''}" onclick="togglePortfolio('${p.id}')">
+      <span class="pcheck-box">${checked ? '●' : '○'}</span>
+      <span class="pcheck-name">${escHtml(p.name)}</span>
+      <span class="pcheck-val">${fmtM(val)}</span>
+      <span class="pcheck-x" onclick="removePortfolio('${p.id}',event)">✕</span>
+    </div>`;
+  }).join('');
+
+  html += `<button class="ptab ptab-add" onclick="pickFile()">+ Add</button>`;
   bar.innerHTML = html;
+}
+
+function calcPortfolioValue(p) {
+  const eq = p.stocks.reduce((s, pos) => {
+    const price = (quotes[pos.ticker]?.price) || (pos.csvValue && pos.shares ? pos.csvValue / pos.shares : 0);
+    return s + pos.shares * price;
+  }, 0);
+  const cash = p.cash.reduce((s, c) => s + c.value, 0);
+  return eq + cash;
+}
+
+function fmtM(n) {
+  if (!n || isNaN(n)) return '';
+  if (n >= 1_000_000) return '$' + (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000)     return '$' + (n / 1_000).toFixed(0) + 'K';
+  return '$' + n.toFixed(0);
 }
 
 function calcTotalAUM() {
