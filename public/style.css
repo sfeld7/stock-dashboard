@@ -8,8 +8,8 @@
   --line:     #dde4ec;
   --line2:    #c8d3de;
   --text:     #0f1e2e;
-  --muted:    #5a7490;
-  --dim:      #8aa0b4;
+  --muted:    #3d5a78;
+  --dim:      #5a7a98;
   --accent:   #1d6ef5;
   --accent2:  #e8f0fe;
   --accent3:  #b8d0fc;
@@ -432,9 +432,12 @@ tbody tr { cursor: pointer; }
 }
 .hero-stat-val {
   font-size: 18px; font-weight: 500; font-variant-numeric: tabular-nums;
-  margin: 4px 0 2px;
+  margin: 4px 0 2px; color: #f0f6fc;
 }
-.hero-stat-sub { font-size: 11px; color: #4a6a8a; }
+.hero-stat-val.up   { color: #4ade80; }
+.hero-stat-val.down { color: #f87171; }
+.hero-stat-val.neutral { color: #f0f6fc; }
+.hero-stat-sub { font-size: 11px; color: #7ab0d4; }
 
 .hero-divider { width: 1px; background: #1e3a52; align-self: stretch; flex-shrink: 0; margin: 14px 4px; }
 
@@ -442,19 +445,19 @@ tbody tr { cursor: pointer; }
   padding: 22px 20px; flex: 1; min-width: 100px;
 }
 .hero-idx-val {
-  font-size: 16px; font-weight: 500; color: #c4d4e4;
+  font-size: 16px; font-weight: 500; color: #eaf2fa;
   font-variant-numeric: tabular-nums; margin: 4px 0 2px;
 }
 .hero-idx-chg { font-size: 11px; font-variant-numeric: tabular-nums; }
 .hero-idx-chg.up   { color: #4ade80; }
 .hero-idx-chg.down { color: #f87171; }
-.hero-idx-chg.flat { color: #4a6a8a; }
+.hero-idx-chg.flat { color: #7ab0d4; }
 
 .hero-label {
   font-size: 9px; font-weight: 600; letter-spacing: 1.5px;
-  text-transform: uppercase; color: #4a6a8a;
+  text-transform: uppercase; color: #7ab0d4;
 }
-.hero-portfolio .hero-label { color: rgba(255,255,255,.55); }
+.hero-portfolio .hero-label { color: rgba(255,255,255,.65); }
 
 /* ── Holdings Tiles ── */
 .home-section-title {

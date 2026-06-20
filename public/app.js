@@ -522,16 +522,9 @@ function renderHeroBanner() {
   trEl.className   = `hero-stat-val ${pc}`;
   document.getElementById('hero-total-pnl').textContent = (pnl >= 0 ? '+' : '') + fmt$(pnl) + ' all time';
 
-  // Cash & Fixed Income breakdown
+  // Cash & Treasuries
   const cashEl = document.getElementById('hero-cash-val');
-  if (cashEl) {
-    cashEl.textContent = fmt$(cashTotal);
-    const cashByType = { Cash: 0, 'Fixed Income': 0 };
-    cashPositions.forEach(p => { cashByType[p.category] = (cashByType[p.category] || 0) + p.value; });
-    const subEl = document.getElementById('hero-cash-sub');
-    if (subEl) subEl.textContent =
-      `Cash ${fmt$(cashByType['Cash'] || 0)} · Bonds ${fmt$(cashByType['Fixed Income'] || 0)}`;
-  }
+  if (cashEl) cashEl.textContent = fmt$(cashTotal);
 
   // Index section
   if (!marketData) return;
