@@ -1,6 +1,8 @@
 /* ── State ── */
-let portfolio      = [];
-let cashPositions  = [];   // money market, treasuries, fixed income
+let portfolios     = [];   // [{ id, name, stocks, cash, _csv }]
+let activeId       = null; // null | 'all' | portfolio id
+let portfolio      = [];   // current-view stocks (derived)
+let cashPositions  = [];   // current-view cash (derived)
 let quotes         = {};
 let sparklines     = {};
 let sentiments     = {};
@@ -10,7 +12,8 @@ let countdownInt   = null;
 let countdown      = 300;
 let firstLoad      = true;
 let sentimentFetch = false;
-const INTERVAL     = 300; // 5 minutes
+let marketData     = null;
+const INTERVAL     = 300;
 
 /* ── Boot ── */
 window.addEventListener('DOMContentLoaded', async () => {
@@ -25,114 +28,262 @@ window.addEventListener('DOMContentLoaded', async () => {
   updateMarketStatus();
   setInterval(updateMarketStatus, 30_000);
 
-  // Auto-load from localStorage if a CSV was previously uploaded
-  const saved = localStorage.getItem('portfolioCSV');
+  // Load saved portfolios from localStorage
+  const saved = localStorage.getItem('portfoliosData');
   if (saved) {
-    const parsed = parseCSV(saved);
-    if (parsed.stocks.length) {
-      portfolio     = parsed.stocks;
-      cashPositions = parsed.cash;
-      document.getElementById('csv-path').textContent = localStorage.getItem('csvName') || 'portfolio.csv';
-      hideError();
-      await refresh();
-      startAutoRefresh();
+    try {
+      const items = JSON.parse(saved);
+      items.forEach(item => {
+        if (!item.csv) return;
+        const parsed = parseCSV(item.csv);
+        if (parsed.stocks.length) {
+          portfolios.push({ id: item.id, name: item.name, stocks: parsed.stocks, cash: parsed.cash, _csv: item.csv });
+        }
+      });
+    } catch (e) { /* ignore corrupt data */ }
+  }
+
+  // Migrate legacy single-CSV format
+  if (!portfolios.length) {
+    const legacyCsv  = localStorage.getItem('portfolioCSV');
+    const legacyName = localStorage.getItem('csvName') || 'My Portfolio';
+    if (legacyCsv) {
+      const parsed = parseCSV(legacyCsv);
+      if (parsed.stocks.length) {
+        const id = 'p' + Date.now();
+        portfolios.push({ id, name: legacyName.replace(/\.csv$/i, ''), stocks: parsed.stocks, cash: parsed.cash, _csv: legacyCsv });
+        savePortfolios();
+      }
     }
+  }
+
+  if (portfolios.length) {
+    activeId = portfolios.length === 1 ? portfolios[0].id : 'all';
+    applyActivePortfolio();
+    renderPortfolioBar();
+    updateCsvPathLabel();
+    hideError();
+    await refresh();
+    startAutoRefresh();
   }
 });
 
-/* ── CSV ── */
+/* ── CSV file picker ── */
 function pickFile() {
-  const input  = document.createElement('input');
-  input.type   = 'file';
-  input.accept = '.csv';
+  const input    = document.createElement('input');
+  input.type     = 'file';
+  input.accept   = '.csv';
+  input.multiple = true;
   input.onchange = e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async ev => loadCSV(ev.target.result, file.name);
-    reader.readAsText(file);
+    Array.from(e.target.files).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = async ev => addPortfolioFromCSV(ev.target.result, file.name);
+      reader.readAsText(file);
+    });
   };
   input.click();
 }
 
-async function loadCSV(csvText, fileName) {
+async function addPortfolioFromCSV(csvText, fileName) {
   const parsed = parseCSV(csvText);
-  if (!parsed.stocks.length) { showError('No valid positions found in CSV.'); return; }
-  portfolio     = parsed.stocks;
-  cashPositions = parsed.cash;
-  sparklines    = {};
-  sentiments = {};
-  firstLoad  = true;
-  localStorage.setItem('portfolioCSV', csvText);
-  localStorage.setItem('csvName', fileName || 'portfolio.csv');
-  document.getElementById('csv-path').textContent = fileName || 'portfolio.csv';
-  document.getElementById('csv-path').title = fileName || '';
+  if (!parsed.stocks.length) { showError('No valid positions found in ' + fileName); return; }
+  const name = (fileName || 'Portfolio').replace(/\.csv$/i, '');
+  const id   = 'p' + Date.now() + Math.random().toString(36).slice(2, 6);
+  portfolios.push({ id, name, stocks: parsed.stocks, cash: parsed.cash, _csv: csvText });
+  savePortfolios();
+
+  // If first portfolio, select it; if more than one exists, go to All view
+  activeId = portfolios.length === 1 ? id : 'all';
+  applyActivePortfolio();
+  renderPortfolioBar();
+  updateCsvPathLabel();
+  sparklines     = {};
+  sentiments     = {};
+  sentimentFetch = false;
+  firstLoad      = true;
   hideError();
   await refresh();
   startAutoRefresh();
 }
 
+function removePortfolio(id, e) {
+  if (e) e.stopPropagation();
+  portfolios = portfolios.filter(p => p.id !== id);
+  if (activeId === id) {
+    activeId = portfolios.length === 0 ? null : portfolios.length === 1 ? portfolios[0].id : 'all';
+  }
+  applyActivePortfolio();
+  savePortfolios();
+  renderPortfolioBar();
+  updateCsvPathLabel();
+  firstLoad = true;
+  sparklines = {}; sentiments = {}; sentimentFetch = false;
+  if (portfolio.length) refresh();
+  else { buildTable(); buildTiles(); renderSummary(); renderHeroBanner(); }
+}
+
+function selectPortfolio(id) {
+  if (activeId === id) return;
+  activeId = id;
+  applyActivePortfolio();
+  renderPortfolioBar();
+  firstLoad = true;
+  if (portfolio.length) refresh();
+  else { buildTable(); buildTiles(); renderSummary(); renderHeroBanner(); }
+}
+
+function applyActivePortfolio() {
+  if (!portfolios.length) { portfolio = []; cashPositions = []; return; }
+  if (activeId === 'all') {
+    portfolio      = mergeStocks(portfolios);
+    cashPositions  = portfolios.flatMap(p => p.cash);
+  } else {
+    const p = portfolios.find(x => x.id === activeId);
+    portfolio      = p ? p.stocks : [];
+    cashPositions  = p ? p.cash   : [];
+  }
+}
+
+function mergeStocks(portfolioList) {
+  const map = {};
+  portfolioList.forEach(p => {
+    p.stocks.forEach(s => {
+      if (!map[s.ticker]) map[s.ticker] = { ticker: s.ticker, shares: 0, totalCost: 0, csvValue: 0 };
+      map[s.ticker].shares    += s.shares;
+      map[s.ticker].totalCost += s.shares * s.avg_cost;
+      map[s.ticker].csvValue  += s.csvValue || 0;
+    });
+  });
+  return Object.values(map).map(s => ({
+    ticker:   s.ticker,
+    shares:   s.shares,
+    avg_cost: s.shares > 0 ? s.totalCost / s.shares : 0,
+    csvValue: s.csvValue,
+  }));
+}
+
+function savePortfolios() {
+  localStorage.setItem('portfoliosData', JSON.stringify(
+    portfolios.map(p => ({ id: p.id, name: p.name, csv: p._csv }))
+  ));
+}
+
+function updateCsvPathLabel() {
+  const el = document.getElementById('csv-path');
+  if (!portfolios.length) { el.textContent = 'No file loaded'; return; }
+  el.textContent = portfolios.length === 1
+    ? portfolios[0].name
+    : `${portfolios.length} portfolios loaded`;
+}
+
+/* ── Portfolio tabs bar ── */
+function renderPortfolioBar() {
+  const bar = document.getElementById('portfolio-bar');
+  if (!portfolios.length) { bar.classList.add('hidden'); return; }
+  bar.classList.remove('hidden');
+
+  let html = '';
+  if (portfolios.length > 1) {
+    const aumVal = calcTotalAUM();
+    html += `<button class="ptab${activeId === 'all' ? ' active' : ''}" onclick="selectPortfolio('all')">
+      All Portfolios <span class="ptab-aum">${fmt$(aumVal)}</span>
+    </button>`;
+  }
+  portfolios.forEach(p => {
+    const active = activeId === p.id;
+    html += `<button class="ptab${active ? ' active' : ''}" onclick="selectPortfolio('${p.id}')">
+      ${escHtml(p.name)}
+      <span class="ptab-x" onclick="removePortfolio('${p.id}',event)">✕</span>
+    </button>`;
+  });
+  html += `<button class="ptab ptab-add" onclick="pickFile()">+ Add Portfolio</button>`;
+  bar.innerHTML = html;
+}
+
+function calcTotalAUM() {
+  let total = 0;
+  const seen = {};
+  portfolios.forEach(p => {
+    p.stocks.forEach(s => {
+      const q = quotes[s.ticker];
+      const price = q?.price || (s.csvValue && s.shares ? s.csvValue / s.shares : 0);
+      if (!seen[s.ticker + '|' + p.id]) {
+        seen[s.ticker + '|' + p.id] = true;
+        total += s.shares * price;
+      }
+    });
+    p.cash.forEach(c => { total += c.value; });
+  });
+  return total;
+}
+
+/* ── CSV parsing ── */
 function parseCSV(text) {
   const clean = text.replace(/^﻿/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   const lines = clean.trim().split('\n').filter(l => l.trim());
   if (lines.length < 2) return { stocks: [], cash: [] };
   const headers = splitCSVLine(lines[0]).map(h => h.toLowerCase().trim());
-  const isRJ = headers.includes('symbol/cusip');
+  const isRJ    = headers.includes('symbol/cusip');
+
   if (isRJ) {
     const iT    = headers.indexOf('symbol/cusip');
     const iS    = headers.indexOf('quantity');
     const iC    = headers.indexOf('amount invested / unit');
     const iType = headers.indexOf('product type');
     const iVal  = headers.indexOf('current value');
-    const iDesc = 0; // Description is always first column
+    const iDesc = 0;
     const rows  = lines.slice(1).map(l => splitCSVLine(l));
 
     const stocks = rows
       .filter(p => {
-        const t = (p[iType]||'').toLowerCase();
+        const t = (p[iType] || '').toLowerCase();
         return (t.includes('stock') || t.includes('fund') || t.includes('etf'))
-          && /^[A-Za-z]{1,5}$/.test((p[iT]||'').trim());
+          && /^[A-Za-z]{1,6}$/.test((p[iT] || '').trim());
       })
-      .map(p => ({ ticker: p[iT].trim().toUpperCase(), shares: parseNum(p[iS]), avg_cost: parseNum(p[iC]) }))
+      .map(p => ({
+        ticker:   p[iT].trim().toUpperCase(),
+        shares:   parseNum(p[iS]),
+        avg_cost: parseNum(p[iC]),
+        csvValue: parseNum(p[iVal] || '0'),
+      }))
       .filter(p => p.shares > 0);
 
     const cash = rows
       .filter(p => {
-        const t = (p[iType]||'').toLowerCase();
+        const t = (p[iType] || '').toLowerCase();
         return t.includes('cash') || t.includes('fixed income');
       })
       .map(p => {
-        const t = (p[iType]||'').toLowerCase();
-        const rawDesc = (p[iDesc]||'').trim();
+        const t      = (p[iType] || '').toLowerCase();
+        const rawDesc = (p[iDesc] || '').trim();
         let category = 'Fixed Income';
         if (t.includes('cash')) category = 'Cash';
-        // Shorten long descriptions
         let name = rawDesc;
-        if (rawDesc.includes('TREASURY')) name = rawDesc.replace(/US TREASURY NOTES?\s*/i, 'T-Note ').split(' DUE')[0].trim();
+        if (rawDesc.includes('TREASURY'))   name = rawDesc.replace(/US TREASURY NOTES?\s*/i, 'T-Note ').split(' DUE')[0].trim();
         else if (rawDesc.includes('MONEY MARKET') || rawDesc.includes('FIMM')) name = 'Money Market (FRGXX)';
         else if (rawDesc.includes('RAYMOND JAMES BANK')) name = 'RJ Bank Deposit';
-        else if (rawDesc.includes('MARGIN')) name = 'Margin Balance';
+        else if (rawDesc.includes('MARGIN'))      name = 'Margin Balance';
         else if (rawDesc.includes('PUERTO RICO')) name = 'Puerto Rico Bonds';
         return { name, category, value: parseNum(p[iVal] || '0') };
       })
       .filter(p => p.value !== 0);
 
-    // Merge duplicate Puerto Rico into one
     const cashMerged = [];
     const prBonds = cash.filter(p => p.name === 'Puerto Rico Bonds');
-    const others   = cash.filter(p => p.name !== 'Puerto Rico Bonds');
+    const others  = cash.filter(p => p.name !== 'Puerto Rico Bonds');
     if (prBonds.length) {
       const total = prBonds.reduce((s, p) => s + p.value, 0);
       cashMerged.push({ name: 'Puerto Rico Bonds', category: 'Fixed Income', value: total });
     }
     return { stocks, cash: [...others, ...cashMerged] };
   }
+
   // Generic CSV fallback
   const iT = headers.indexOf('ticker'), iS = headers.indexOf('shares'), iC = headers.indexOf('avg_cost');
   if (iT < 0 || iS < 0 || iC < 0) { showError('CSV needs: ticker, shares, avg_cost'); return { stocks: [], cash: [] }; }
   const stocks = lines.slice(1)
     .map(l => splitCSVLine(l)).filter(p => p[iT])
-    .map(p => ({ ticker: p[iT].trim().toUpperCase(), shares: parseNum(p[iS]), avg_cost: parseNum(p[iC]) }));
+    .map(p => ({ ticker: p[iT].trim().toUpperCase(), shares: parseNum(p[iS]), avg_cost: parseNum(p[iC]), csvValue: 0 }));
   return { stocks, cash: [] };
 }
 
@@ -153,6 +304,13 @@ function parseNum(s) {
   return neg ? -n : (n || 0);
 }
 
+/* price helper: live quote or CSV-implied price */
+function effectivePrice(pos) {
+  const q = quotes[pos.ticker] || {};
+  if (q.price) return q.price;
+  return (pos.csvValue && pos.shares) ? pos.csvValue / pos.shares : NaN;
+}
+
 /* ── Refresh ── */
 async function triggerRefresh() {
   countdown = INTERVAL; updateRing();
@@ -162,18 +320,18 @@ async function triggerRefresh() {
 async function refresh() {
   if (!portfolio.length) return;
   if (firstLoad) showLoading(true);
-  const tickers = portfolio.map(p => p.ticker).join(',');
+  const tickers = [...new Set(portfolio.map(p => p.ticker))].join(',');
   const res = await apiFetch(`/api/quotes?tickers=${encodeURIComponent(tickers)}`);
   showLoading(false);
   if (!res.ok) { showError('Fetch failed: ' + res.error); return; }
   hideError();
-  const prev = { ...quotes };
-  quotes = res.quotes;
+  quotes = { ...quotes, ...res.quotes }; // merge — preserve quotes from other portfolios
   if (firstLoad) { buildTable(); buildTiles(); fetchMarket(); firstLoad = false; }
   else           { updateTableCells(); updateTiles(); }
   renderSummary();
   renderHeroBanner();
   renderMovers();
+  renderPortfolioBar(); // update AUM value in All tab
   if (Object.keys(sparklines).length === 0) fetchSparklines();
   if (!sentimentFetch) fetchSentiments();
   document.getElementById('last-updated').textContent =
@@ -207,16 +365,14 @@ function buildTiles() {
   grid.querySelectorAll('.holding-tile').forEach(el =>
     el.addEventListener('click', () => openModal(el.dataset.ticker))
   );
-  // Render sparklines already in cache
   rows.forEach(r => {
     if (sparklines[r.ticker]) renderTileSparkline(r.ticker, sparklines[r.ticker]);
   });
 }
 
 function updateTiles() {
-  const rows = majorHoldings();
-  const grid = document.getElementById('tiles-grid');
-  // Rebuild if tile count changed
+  const rows    = majorHoldings();
+  const grid    = document.getElementById('tiles-grid');
   const existing = grid.querySelectorAll('.holding-tile').length;
   if (existing !== rows.length) { buildTiles(); return; }
   rows.forEach(r => {
@@ -224,9 +380,9 @@ function updateTiles() {
     if (!tile) return;
     const dc = dirClass(r.change);
     tile.className = `holding-tile tile-${dc}`;
-    tile.querySelector('.tile-price').textContent = r.price ? fmt$(r.price) : '—';
+    tile.querySelector('.tile-price').textContent = r.price ? fmt$(r.price) : fmt$(r.mktValue / r.shares);
     const pill = tile.querySelector('.tile-change-pill');
-    pill.className = `tile-change-pill ${dc}`;
+    pill.className   = `tile-change-pill ${dc}`;
     pill.textContent = r.changePct != null ? (r.changePct >= 0 ? '+' : '') + r.changePct.toFixed(2) + '%' : '—';
     tile.querySelector('.tile-day-gain').textContent =
       isNaN(r.dayGain) ? '—' : (r.dayGain >= 0 ? '+' : '') + fmt$(r.dayGain);
@@ -246,6 +402,7 @@ function tileHTML(r) {
   const dc  = dirClass(r.change);
   const pc  = dirClass(r.pnl);
   const pct = r.changePct != null ? (r.changePct >= 0 ? '+' : '') + r.changePct.toFixed(2) + '%' : '—';
+  const displayPrice = r.price ? fmt$(r.price) : fmt$(r.mktValue / r.shares);
   return `
     <div class="holding-tile tile-${dc}" data-ticker="${r.ticker}">
       <div class="tile-header">
@@ -254,7 +411,7 @@ function tileHTML(r) {
       </div>
       <div class="tile-ticker">${r.ticker}</div>
       <div class="tile-name">${r.shortName || '—'}</div>
-      <div class="tile-price">${r.price ? fmt$(r.price) : '—'}</div>
+      <div class="tile-price">${displayPrice}</div>
       <div class="tile-stats">
         <div>
           <div class="tile-stat-label">Day Gain</div>
@@ -311,9 +468,7 @@ function updateRing() {
   document.getElementById('ring-fill').style.strokeDashoffset = circ * (1 - countdown / INTERVAL);
   const mins = Math.floor(countdown / 60);
   const secs = countdown % 60;
-  document.getElementById('ring-label').textContent = mins > 0
-    ? `${mins}m`
-    : `${secs}s`;
+  document.getElementById('ring-label').textContent = mins > 0 ? `${mins}m` : `${secs}s`;
 }
 
 /* ── Build table (first load / sort) ── */
@@ -339,13 +494,13 @@ function updateTableCells() {
     const tr = document.querySelector(`tr[data-ticker="${pos.ticker}"]`);
     if (!tr) return;
     const q      = quotes[pos.ticker] || {};
-    const price  = q.price ?? NaN;
-    const mv     = pos.shares * price;
-    const cb      = pos.shares * pos.avg_cost;
-    const pnl     = mv - cb;
-    const pnlPct  = cb ? (pnl / cb) * 100 : NaN;
+    const price  = effectivePrice(pos);
+    const mv     = isNaN(price) ? NaN : pos.shares * price;
+    const cb     = pos.shares * pos.avg_cost;
+    const pnl    = mv - cb;
+    const pnlPct = cb ? (pnl / cb) * 100 : NaN;
     const weight  = totalValue ? (mv / totalValue) * 100 : NaN;
-    const dayGain = isNaN(price) ? NaN : pos.shares * (q.change || 0);
+    const dayGain = !q.price ? NaN : pos.shares * (q.change || 0);
     const dc      = dirClass(q.change);
     const pc      = dirClass(pnl);
     const dgc     = dirClass(dayGain);
@@ -353,21 +508,20 @@ function updateTableCells() {
     const cells   = tr.querySelectorAll('td');
 
     const oldPrice = parseFloat(tr.dataset.price);
-    if (oldPrice && price && price !== oldPrice) {
+    if (oldPrice && q.price && q.price !== oldPrice) {
       tr.classList.remove('flash-up', 'flash-down');
       void tr.offsetWidth;
-      tr.classList.add(price > oldPrice ? 'flash-up' : 'flash-down');
+      tr.classList.add(q.price > oldPrice ? 'flash-up' : 'flash-down');
     }
-    tr.dataset.price = price;
+    tr.dataset.price = q.price || '';
 
-    // cols: 0=symbol 1=spark 2=sentiment 3=price 4=change 5=changePct 6=shares 7=dayGain 8=mktVal 9=pnl 10=pnlPct 11=weight
-    cells[3].textContent  = price ? fmt$(price) : '—';
+    cells[3].textContent  = q.price ? fmt$(q.price) : (pos.csvValue && pos.shares ? fmt$(pos.csvValue / pos.shares) : '—');
     cells[4].className    = `num ${dc}`;
     cells[4].textContent  = q.change != null ? (q.change >= 0 ? '+' : '') + fmt$(q.change) : '—';
     cells[5].innerHTML    = `<span class="pill ${dc}">${q.changePct != null ? (q.changePct >= 0 ? '+' : '') + q.changePct.toFixed(2) + '%' : '—'}</span>`;
     cells[7].className    = `num ${dgc}`;
     cells[7].textContent  = isNaN(dayGain) ? '—' : (dayGain >= 0 ? '+' : '') + fmt$(dayGain);
-    cells[8].textContent  = fmt$(mv);
+    cells[8].textContent  = isNaN(mv) ? '—' : fmt$(mv);
     cells[9].className    = `num ${pc}`;
     cells[9].textContent  = isNaN(pnl) ? '—' : (pnl >= 0 ? '+' : '') + fmt$(pnl);
     cells[10].innerHTML   = `<span class="pill ${pc}">${isNaN(pnlPct) ? '—' : (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%'}</span>`;
@@ -379,14 +533,14 @@ function sortedRows() {
   const totalValue = calcTotalValue();
   let rows = portfolio.map(pos => {
     const q      = quotes[pos.ticker] || {};
-    const price  = q.price ?? NaN;
-    const mv     = pos.shares * price;
+    const price  = effectivePrice(pos);
+    const mv     = isNaN(price) ? NaN : pos.shares * price;
     const cb     = pos.shares * pos.avg_cost;
     const pnl    = mv - cb;
     const pnlPct = cb ? (pnl / cb) * 100 : NaN;
     const weight  = totalValue ? (mv / totalValue) * 100 : NaN;
-    const dayGain = isNaN(price) ? NaN : pos.shares * (q.change || 0);
-    return { ...pos, ...q, mktValue: mv, costBasis: cb, pnl, pnlPct, weight, dayGain };
+    const dayGain = !q.price ? NaN : pos.shares * (q.change || 0);
+    return { ...pos, ...q, price, mktValue: mv, costBasis: cb, pnl, pnlPct, weight, dayGain };
   });
   if (sortCol) {
     rows.sort((a, b) => {
@@ -406,6 +560,7 @@ function rowHTML(row) {
   const dc   = dirClass(row.change);
   const pc   = dirClass(row.pnl);
   const barW = isNaN(row.weight) ? 0 : Math.max(2, row.weight * 2.5);
+  const displayPrice = row.price ? fmt$(row.price) : (row.csvValue && row.shares ? fmt$(row.csvValue / row.shares) : '—');
   return `
     <td>
       <div class="ticker-wrap">
@@ -418,12 +573,12 @@ function rowHTML(row) {
     </td>
     <td class="sparkline-cell" id="spark-${row.ticker}"><span class="spark-loading">…</span></td>
     <td class="sentiment-cell" id="sent-${row.ticker}"><span class="sentiment-na">…</span></td>
-    <td class="num">${row.price ? fmt$(row.price) : '—'}</td>
+    <td class="num">${displayPrice}</td>
     <td class="num ${dc}">${row.change != null ? (row.change >= 0 ? '+' : '') + fmt$(row.change) : '—'}</td>
     <td class="num"><span class="pill ${dc}">${row.changePct != null ? (row.changePct >= 0 ? '+' : '') + row.changePct.toFixed(2) + '%' : '—'}</span></td>
     <td class="num">${row.shares.toLocaleString()}</td>
     <td class="num ${dirClass(row.dayGain)}">${isNaN(row.dayGain) ? '—' : (row.dayGain >= 0 ? '+' : '') + fmt$(row.dayGain)}</td>
-    <td class="num">${fmt$(row.mktValue)}</td>
+    <td class="num">${isNaN(row.mktValue) ? '—' : fmt$(row.mktValue)}</td>
     <td class="num ${pc}">${isNaN(row.pnl) ? '—' : (row.pnl >= 0 ? '+' : '') + fmt$(row.pnl)}</td>
     <td class="num"><span class="pill ${pc}">${isNaN(row.pnlPct) ? '—' : (row.pnlPct >= 0 ? '+' : '') + row.pnlPct.toFixed(2) + '%'}</span></td>
     <td class="num">
@@ -438,67 +593,58 @@ function rowHTML(row) {
 function renderSummary() {
   let totalValue = 0, totalCost = 0, dayGain = 0, valid = 0;
   portfolio.forEach(pos => {
-    const q = quotes[pos.ticker] || {};
-    if (!q.price) return;
+    const q     = quotes[pos.ticker] || {};
+    const price = effectivePrice(pos);
+    if (isNaN(price)) return;
     valid++;
-    totalValue += pos.shares * q.price;
+    totalValue += pos.shares * price;
     totalCost  += pos.shares * pos.avg_cost;
-    dayGain    += pos.shares * (q.change || 0);
+    if (q.price) dayGain += pos.shares * (q.change || 0);
   });
-  const pnl       = totalValue - totalCost;
-  const pnlPct    = totalCost ? (pnl / totalCost) * 100 : 0;
-  const dayPct    = totalValue ? (dayGain / (totalValue - dayGain)) * 100 : 0;
-  const dc        = dirClass(pnl);
-  const dd        = dirClass(dayGain);
+  const pnl    = totalValue - totalCost;
+  const pnlPct = totalCost ? (pnl / totalCost) * 100 : 0;
+  const dayPct = totalValue ? (dayGain / (totalValue - dayGain)) * 100 : 0;
+  const dc     = dirClass(pnl);
+  const dd     = dirClass(dayGain);
 
-  // Total value — split dollars and cents
   const valStr = totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const [dollars, cents] = valStr.split('.');
-  document.getElementById('total-value').innerHTML =
-    `$${dollars}<span class="cents">.${cents}</span>`;
+  document.getElementById('total-value').innerHTML = `$${dollars}<span class="cents">.${cents}</span>`;
 
-  const pnlStr = (pnl >= 0 ? '+' : '') + fmt$(pnl);
-  const pctStr = (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%';
-  const pnlEl  = document.getElementById('total-pnl');
-  pnlEl.textContent  = pnlStr;
-  pnlEl.className    = dc;
-  const pctEl  = document.getElementById('total-pct');
-  pctEl.textContent  = pctStr;
-  pctEl.className    = dc;
+  const pnlEl = document.getElementById('total-pnl');
+  pnlEl.textContent = (pnl >= 0 ? '+' : '') + fmt$(pnl);
+  pnlEl.className   = dc;
+  const pctEl = document.getElementById('total-pct');
+  pctEl.textContent = (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%';
+  pctEl.className   = dc;
 
-  const dayEl  = document.getElementById('day-pnl');
-  dayEl.textContent  = (dayGain >= 0 ? '+' : '') + fmt$(dayGain);
-  dayEl.className    = `stat-value ${dd}`;
-  document.getElementById('day-pct').textContent =
-    (dayPct >= 0 ? '+' : '') + dayPct.toFixed(2) + '% today';
-
-  document.getElementById('total-cost').textContent    = fmt$(totalCost);
+  const dayEl = document.getElementById('day-pnl');
+  dayEl.textContent = (dayGain >= 0 ? '+' : '') + fmt$(dayGain);
+  dayEl.className   = `stat-value ${dd}`;
+  document.getElementById('day-pct').textContent = (dayPct >= 0 ? '+' : '') + dayPct.toFixed(2) + '% today';
+  document.getElementById('total-cost').textContent     = fmt$(totalCost);
   document.getElementById('position-count').textContent = valid;
-  document.getElementById('position-sub').textContent   =
-    `of ${portfolio.length} positions loaded`;
+  document.getElementById('position-sub').textContent   = `of ${portfolio.length} positions loaded`;
 }
 
 /* ── Hero Banner ── */
-let marketData = null;
-
 async function fetchMarket() {
   const res = await apiFetch('/api/market');
   if (res.ok) { marketData = res.indices; renderHeroBanner(); }
 }
 
 function renderHeroBanner() {
-  // Equity positions
   let equityValue = 0, totalCost = 0, dayGain = 0;
   portfolio.forEach(pos => {
-    const q = quotes[pos.ticker] || {};
-    if (!q.price) return;
-    equityValue += pos.shares * q.price;
+    const q     = quotes[pos.ticker] || {};
+    const price = effectivePrice(pos);
+    if (isNaN(price)) return;
+    equityValue += pos.shares * price;
     totalCost   += pos.shares * pos.avg_cost;
-    dayGain     += pos.shares * (q.change || 0);
+    if (q.price) dayGain += pos.shares * (q.change || 0);
   });
 
-  // Cash & fixed income
-  const cashTotal = calcCashTotal();
+  const cashTotal  = calcCashTotal();
   const totalValue = equityValue + cashTotal;
   const pnl    = totalValue - totalCost;
   const pnlPct = totalCost ? (pnl / totalCost) * 100 : 0;
@@ -506,15 +652,15 @@ function renderHeroBanner() {
   const dc = dirClass(dayGain);
   const pc = dirClass(pnl);
 
-  const valStr  = totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const valStr = totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   document.getElementById('hero-value').textContent = '$' + valStr;
 
   const heroSub = document.getElementById('hero-sub');
   heroSub.innerHTML = `<span class="${dc}">${dayGain >= 0 ? '+' : ''}${fmt$(dayGain)} today (${dayPct >= 0 ? '+' : ''}${dayPct.toFixed(2)}%)</span>`;
 
   const dgEl = document.getElementById('hero-day-gain');
-  dgEl.textContent  = (dayGain >= 0 ? '+' : '') + fmt$(dayGain);
-  dgEl.className    = `hero-stat-val ${dc}`;
+  dgEl.textContent = (dayGain >= 0 ? '+' : '') + fmt$(dayGain);
+  dgEl.className   = `hero-stat-val ${dc}`;
   document.getElementById('hero-day-pct').textContent = (dayPct >= 0 ? '+' : '') + dayPct.toFixed(2) + '% today';
 
   const trEl = document.getElementById('hero-total-return');
@@ -522,11 +668,9 @@ function renderHeroBanner() {
   trEl.className   = `hero-stat-val ${pc}`;
   document.getElementById('hero-total-pnl').textContent = (pnl >= 0 ? '+' : '') + fmt$(pnl) + ' all time';
 
-  // Cash & Treasuries
   const cashEl = document.getElementById('hero-cash-val');
   if (cashEl) cashEl.textContent = fmt$(cashTotal);
 
-  // Index section
   if (!marketData) return;
   const idMap = { 'DJIA': 'idx-DJIA', 'NASDAQ': 'idx-NASDAQ', 'S&P 500': 'idx-SP500', 'VIX': 'idx-VIX' };
   marketData.forEach(idx => {
@@ -545,7 +689,7 @@ function renderHeroBanner() {
 
 /* ── Top movers ── */
 function renderMovers() {
-  const list = document.getElementById('movers-list');
+  const list   = document.getElementById('movers-list');
   const ranked = portfolio
     .map(pos => ({ ticker: pos.ticker, pct: quotes[pos.ticker]?.changePct }))
     .filter(x => x.pct != null)
@@ -561,8 +705,8 @@ function renderMovers() {
 
 function calcTotalValue() {
   const stocks = portfolio.reduce((s, p) => {
-    const q = quotes[p.ticker];
-    return s + (q?.price ? p.shares * q.price : 0);
+    const price = effectivePrice(p);
+    return s + (isNaN(price) ? 0 : p.shares * price);
   }, 0);
   const cash = cashPositions.reduce((s, p) => s + p.value, 0);
   return stocks + cash;
@@ -575,6 +719,7 @@ function calcCashTotal() {
 /* ── Sparklines ── */
 async function fetchSparklines() {
   await Promise.allSettled(portfolio.map(async pos => {
+    if (sparklines[pos.ticker]) return; // already cached
     const res = await apiFetch(`/api/sparkline?ticker=${encodeURIComponent(pos.ticker)}`);
     if (res.ok && res.closes?.length > 1) {
       sparklines[pos.ticker] = res.closes;
@@ -615,6 +760,7 @@ function renderSparkline(ticker, closes) {
 async function fetchSentiments() {
   sentimentFetch = true;
   for (const pos of portfolio) {
+    if (sentiments[pos.ticker]) { renderSentiment(pos.ticker, sentiments[pos.ticker]); continue; }
     const res = await apiFetch(`/api/sentiment?ticker=${encodeURIComponent(pos.ticker)}`);
     if (res.ok && res.total > 0) {
       sentiments[pos.ticker] = res;
@@ -675,10 +821,9 @@ function updateMarketStatus() {
 
   const dot   = document.getElementById('market-dot');
   const label = document.getElementById('market-label');
-  dot.className   = 'market-dot' + (open ? ' open' : '');
+  dot.className    = 'market-dot' + (open ? ' open' : '');
   label.textContent = open ? `Open · ${timeStr}` : `Closed · ${timeStr}`;
   label.className   = open ? 'market-open-label' : '';
-
   document.getElementById('market-status').innerHTML = open
     ? '<span class="market-open">● Market Open</span>'
     : '<span class="market-closed">● Market Closed</span>';
@@ -706,11 +851,11 @@ async function openModal(ticker) {
   const q   = quotes[ticker] || {};
   const pos = portfolio.find(p => p.ticker === ticker) || {};
 
-  // Header
   document.getElementById('modal-badge').textContent  = ticker.slice(0, 2);
   document.getElementById('modal-ticker').textContent = ticker;
-  document.getElementById('modal-name').textContent   = q.shortName || nameCache[ticker] || '';
-  document.getElementById('modal-price').textContent  = q.price ? fmt$(q.price) : '—';
+  document.getElementById('modal-name').textContent   = q.shortName || '';
+  const price = effectivePrice(pos);
+  document.getElementById('modal-price').textContent  = q.price ? fmt$(q.price) : (isNaN(price) ? '—' : fmt$(price) + ' (NAV)');
 
   const pill = document.getElementById('modal-change-pill');
   pill.textContent = q.changePct != null
@@ -718,8 +863,7 @@ async function openModal(ticker) {
     : '—';
   pill.className = 'pill ' + dirClass(q.changePct);
 
-  // Stats
-  const mv  = pos.shares * q.price;
+  const mv  = isNaN(price) ? NaN : pos.shares * price;
   const cb  = pos.shares * pos.avg_cost;
   const pnl = mv - cb;
   document.getElementById('ms-open').textContent   = fmt$(q.open);
@@ -728,16 +872,15 @@ async function openModal(ticker) {
   document.getElementById('ms-prev').textContent   = fmt$(q.prevClose);
   document.getElementById('ms-shares').textContent = pos.shares ? pos.shares.toLocaleString() : '—';
   document.getElementById('ms-cost').textContent   = fmt$(pos.avg_cost);
-  document.getElementById('ms-value').textContent  = fmt$(mv);
-  const gainEl   = document.getElementById('ms-gain');
+  document.getElementById('ms-value').textContent  = isNaN(mv) ? '—' : fmt$(mv);
+  const gainEl = document.getElementById('ms-gain');
   gainEl.textContent = isNaN(pnl) ? '—' : (pnl >= 0 ? '+' : '') + fmt$(pnl);
   gainEl.className   = 'mstat-val ' + dirClass(pnl);
   const retEl    = document.getElementById('ms-return');
   const retPct   = cb ? (pnl / cb) * 100 : NaN;
-  retEl.textContent  = isNaN(retPct) ? '—' : (retPct >= 0 ? '+' : '') + retPct.toFixed(2) + '%';
-  retEl.className    = 'mstat-val ' + dirClass(retPct);
+  retEl.textContent = isNaN(retPct) ? '—' : (retPct >= 0 ? '+' : '') + retPct.toFixed(2) + '%';
+  retEl.className   = 'mstat-val ' + dirClass(retPct);
 
-  // Set active tab
   document.querySelectorAll('.modal-tab').forEach(b =>
     b.classList.toggle('active', b.dataset.range === '1D')
   );
@@ -766,7 +909,7 @@ async function setModalRange(range) {
   document.querySelectorAll('.modal-tab').forEach(b =>
     b.classList.toggle('active', b.dataset.range === range)
   );
-  await loadModalData(modalTicker, range); // chart + news only; Reddit stays
+  await loadModalData(modalTicker, range);
 }
 
 async function loadModalData(ticker, range) {
@@ -774,7 +917,6 @@ async function loadModalData(ticker, range) {
   const res = await apiFetch(`/api/detail?ticker=${encodeURIComponent(ticker)}&range=${range}`);
   showChartLoading(false);
   if (!res.ok) { renderChartError(res.error); return; }
-  console.log('[chart] candles ok:', !!res.candles, 'points:', res.candles?.c?.length);
   if (res.candles?.c?.length > 1) renderModalChart(res.candles, range);
   else renderChartError(res.candles ? 'Not enough data for this range' : 'No chart data available');
   renderNews(res.news || []);
@@ -787,22 +929,17 @@ function showChartLoading(on) {
 /* ── SVG Chart ── */
 function renderModalChart(candles, range) {
   const wrap = document.getElementById('modal-chart');
-  // Fixed logical canvas — SVG scales to fill container via width="100%"
-  const W   = 760;
-  const H   = 180;
+  const W   = 760, H = 180;
   const PAD = { top: 12, right: 56, bottom: 24, left: 12 };
-  const cW     = W - PAD.left - PAD.right;
-  const cH     = H - PAD.top  - PAD.bottom;
+  const cW  = W - PAD.left - PAD.right;
+  const cH  = H - PAD.top  - PAD.bottom;
 
-  const closes = candles.c;
-  const times  = candles.t;
-  const highs  = candles.h;
-  const lows   = candles.l;
-  const n      = closes.length;
+  const closes = candles.c, times = candles.t, highs = candles.h, lows = candles.l;
+  const n = closes.length;
   if (!n) { renderChartError('No data for this range'); return; }
 
-  const minP  = Math.min(...lows)   * 0.999;
-  const maxP  = Math.max(...highs)  * 1.001;
+  const minP  = Math.min(...lows)  * 0.999;
+  const maxP  = Math.max(...highs) * 1.001;
   const range2= maxP - minP;
   const isUp  = closes[n - 1] >= closes[0];
   const color = isUp ? '#22c55e' : '#f85149';
@@ -811,13 +948,11 @@ function renderModalChart(candles, range) {
   const xOf = i => PAD.left + (i / (n - 1)) * cW;
   const yOf = p => PAD.top  + (1 - (p - minP) / range2) * cH;
 
-  // Build path
-  const pts  = closes.map((c, i) => `${xOf(i).toFixed(1)},${yOf(c).toFixed(1)}`).join(' ');
+  const pts      = closes.map((c, i) => `${xOf(i).toFixed(1)},${yOf(c).toFixed(1)}`).join(' ');
   const fillPath = `M${PAD.left},${yOf(closes[0]).toFixed(1)} ` +
     closes.map((c, i) => `L${xOf(i).toFixed(1)},${yOf(c).toFixed(1)}`).join(' ') +
     ` L${xOf(n - 1).toFixed(1)},${(PAD.top + cH).toFixed(1)} L${PAD.left},${(PAD.top + cH).toFixed(1)} Z`;
 
-  // Y-axis labels (4 ticks)
   const yTicks = [0, 0.33, 0.66, 1].map(t => minP + t * range2);
   const yLabels = yTicks.map(p => `
     <text x="${W - PAD.right + 6}" y="${(yOf(p) + 3).toFixed(1)}"
@@ -825,7 +960,6 @@ function renderModalChart(candles, range) {
     <line x1="${PAD.left}" y1="${yOf(p).toFixed(1)}" x2="${W - PAD.right}" y2="${yOf(p).toFixed(1)}"
       stroke="#0f1d2a" stroke-width="0.5"/>`).join('');
 
-  // X-axis time labels (5 ticks)
   const xIdxs  = [0, .25, .5, .75, 1].map(t => Math.round(t * (n - 1)));
   const xLabels = xIdxs.map(i => {
     const d   = new Date(times[i] * 1000);
@@ -837,7 +971,6 @@ function renderModalChart(candles, range) {
       font-family="monospace">${lbl}</text>`;
   }).join('');
 
-  // Hover data encoded in a data attribute for crosshair
   const hoverData = closes.map((c, i) => `${xOf(i).toFixed(1)}|${c.toFixed(2)}`).join(',');
 
   wrap.innerHTML = `
@@ -861,15 +994,14 @@ function setupCrosshair(svg) {
   const crosshair = document.getElementById('modal-crosshair');
   const lineV     = crosshair.querySelector('.crosshair-line-v');
   const label     = document.getElementById('crosshair-label');
-  const VB_W      = 760; // must match renderModalChart W
+  const VB_W      = 760;
 
   svg.addEventListener('mousemove', e => {
     const rect     = svg.getBoundingClientRect();
-    const mx       = e.clientX - rect.left;            // pixel x in rendered SVG
-    const scale    = rect.width / VB_W;                // pixels per viewBox unit
+    const mx       = e.clientX - rect.left;
+    const scale    = rect.width / VB_W;
     const hoverPts = svg.dataset.hover.split(',').map(s => s.split('|').map(Number));
 
-    // Find closest point (compare in pixel space)
     let best = hoverPts[0], bestDist = Infinity;
     hoverPts.forEach(([vbX, price]) => {
       const d = Math.abs(vbX * scale - mx);
@@ -899,23 +1031,18 @@ function renderNews(news) {
     const ago = timeAgo(n.datetime * 1000);
     return `<div class="news-item" onclick="openLink('${n.url}')">
       <div class="news-headline">${escHtml(n.headline)}</div>
-      <div class="news-meta">
-        <span>${escHtml(n.source)}</span>
-        <span>${ago}</span>
-      </div>
+      <div class="news-meta"><span>${escHtml(n.source)}</span><span>${ago}</span></div>
     </div>`;
   }).join('');
 }
 
 async function loadRedditSentiment(ticker) {
-  // Use cached table sentiment if available, otherwise fetch fresh
   const cached = sentiments[ticker];
   if (cached?.posts?.length) { renderRedditPosts(cached); return; }
-
   const res = await apiFetch(`/api/reddit?ticker=${encodeURIComponent(ticker)}`);
   if (res.ok) {
     sentiments[ticker] = res;
-    renderSentiment(ticker, res); // update table cell too
+    renderSentiment(ticker, res);
     renderRedditPosts(res);
   } else {
     document.getElementById('modal-reddit-list').innerHTML =
@@ -932,12 +1059,10 @@ function renderRedditPosts(data) {
     badge.textContent = lbl;
     badge.className   = `reddit-score-badge ${dir}`;
   }
-
   const list = document.getElementById('modal-reddit-list');
   if (!data.posts?.length) {
     list.innerHTML = '<div class="no-news">No scored posts found this week.</div>'; return;
   }
-
   list.innerHTML = data.posts.map(p => {
     const ago = timeAgo(p.created * 1000);
     return `<div class="reddit-item" onclick="openLink('${p.url}')">
@@ -954,9 +1079,7 @@ function renderRedditPosts(data) {
   }).join('');
 }
 
-function openLink(url) {
-  window.open(url, '_blank');
-}
+function openLink(url) { window.open(url, '_blank'); }
 
 function timeAgo(ms) {
   const diff = Date.now() - ms;
@@ -977,4 +1100,4 @@ function showError(msg)  { const b = document.getElementById('error-banner'); b.
 function hideError()     { document.getElementById('error-banner').classList.add('hidden'); }
 function dirClass(v)     { return v == null || isNaN(v) ? 'neutral' : v > 0 ? 'up' : v < 0 ? 'down' : 'neutral'; }
 function fmt$(n)         { return n == null || isNaN(n) ? '—' : '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-function escHtml(s)      { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escHtml(s)      { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
