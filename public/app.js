@@ -494,14 +494,15 @@ function updateTiles() {
     if (!tile) return;
     const dc = dirClass(r.change);
     tile.className = `holding-tile tile-${dc}`;
-    tile.querySelector('.tile-price').textContent = r.price ? fmt$(r.price) : fmt$(r.mktValue / r.shares);
+    const displayPrice = r.price ? fmt$(r.price) : fmt$(r.mktValue / r.shares);
+    tile.querySelector('.tile-price-sub').textContent = 'Price: ' + displayPrice;
     const pill = tile.querySelector('.tile-change-pill');
     pill.className   = `tile-change-pill ${dc}`;
     pill.textContent = r.changePct != null ? (r.changePct >= 0 ? '+' : '') + r.changePct.toFixed(2) + '%' : '—';
-    tile.querySelector('.tile-day-gain').textContent =
-      isNaN(r.dayGain) ? '—' : (r.dayGain >= 0 ? '+' : '') + fmt$(r.dayGain);
-    tile.querySelector('.tile-day-gain').className = `tile-stat-val ${dc}`;
-    tile.querySelector('.tile-mkt-val').textContent = fmt$(r.mktValue);
+    const dayEl = tile.querySelector('.tile-day-gain');
+    dayEl.textContent = isNaN(r.dayGain) ? '—' : (r.dayGain >= 0 ? '+' : '') + fmt$(r.dayGain) + ' today';
+    dayEl.className   = `tile-day-hero ${dc} tile-day-gain`;
+    tile.querySelector('.tile-mkt-val').textContent = isNaN(r.mktValue) ? '—' : fmt$(r.mktValue);
     const pc = dirClass(r.pnl);
     tile.querySelector('.tile-pnl').textContent =
       isNaN(r.pnl) ? '—' : (r.pnl >= 0 ? '+' : '') + fmt$(r.pnl);
@@ -525,16 +526,15 @@ function tileHTML(r) {
       </div>
       <div class="tile-ticker">${r.ticker}</div>
       <div class="tile-name">${r.shortName || '—'}</div>
-      <div class="tile-price">${displayPrice}</div>
+      <div class="tile-mkt-hero">
+        <div class="tile-mkt-val neutral">${isNaN(r.mktValue) ? '—' : fmt$(r.mktValue)}</div>
+        <div class="tile-mkt-label">Market Value</div>
+      </div>
+      <div class="tile-day-hero ${dc} tile-day-gain">
+        ${isNaN(r.dayGain) ? '—' : (r.dayGain >= 0 ? '+' : '') + fmt$(r.dayGain) + ' today'}
+      </div>
+      <div class="tile-price-sub">Price: ${displayPrice}</div>
       <div class="tile-stats">
-        <div>
-          <div class="tile-stat-label">Day Gain</div>
-          <div class="tile-stat-val ${dc} tile-day-gain">${isNaN(r.dayGain) ? '—' : (r.dayGain >= 0 ? '+' : '') + fmt$(r.dayGain)}</div>
-        </div>
-        <div>
-          <div class="tile-stat-label">Mkt Value</div>
-          <div class="tile-stat-val neutral tile-mkt-val">${fmt$(r.mktValue)}</div>
-        </div>
         <div>
           <div class="tile-stat-label">Total Gain</div>
           <div class="tile-stat-val ${pc} tile-pnl">${isNaN(r.pnl) ? '—' : (r.pnl >= 0 ? '+' : '') + fmt$(r.pnl)}</div>

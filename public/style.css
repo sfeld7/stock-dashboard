@@ -544,9 +544,24 @@ tbody tr { cursor: pointer; }
 .tile-change-pill.flat { background: var(--bg2);      color: var(--muted); }
 
 .tile-ticker { font-size: 20px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
-.tile-name   { font-size: 11px; color: var(--muted); margin-bottom: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile-name   { font-size: 11px; color: var(--muted); margin-bottom: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.tile-price  { font-size: 26px; font-weight: 300; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: -0.5px; margin-bottom: 14px; }
+/* Market value — hero number */
+.tile-mkt-hero  { margin-bottom: 4px; }
+.tile-mkt-val   { font-size: 26px; font-weight: 300; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; color: var(--text); }
+.tile-mkt-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin-top: 1px; }
+
+/* Day gain — prominent but secondary */
+.tile-day-hero {
+  font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums;
+  margin-bottom: 4px;
+}
+.tile-day-hero.up   { color: var(--green); }
+.tile-day-hero.down { color: var(--red); }
+.tile-day-hero.neutral { color: var(--muted); }
+
+/* Price — de-emphasized */
+.tile-price-sub { font-size: 11px; color: var(--dim); margin-bottom: 14px; font-variant-numeric: tabular-nums; }
 
 .tile-stats  { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .tile-stat-label { font-size: 9px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px; }
