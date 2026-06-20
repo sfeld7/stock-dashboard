@@ -1,15 +1,16 @@
 /* ── State ── */
-let portfolio    = [];
-let quotes       = {};
-let sparklines   = {};
-let sentiments   = {};
-let sortCol      = null;
-let sortDir      = 1;
-let countdownInt = null;
-let countdown    = 300;
-let firstLoad    = true;
+let portfolio      = [];
+let cashPositions  = [];   // money market, treasuries, fixed income
+let quotes         = {};
+let sparklines     = {};
+let sentiments     = {};
+let sortCol        = null;
+let sortDir        = 1;
+let countdownInt   = null;
+let countdown      = 300;
+let firstLoad      = true;
 let sentimentFetch = false;
-const INTERVAL   = 300; // 5 minutes
+const INTERVAL     = 300; // 5 minutes
 
 /* ── Boot ── */
 window.addEventListener('DOMContentLoaded', async () => {
@@ -27,9 +28,10 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Auto-load from localStorage if a CSV was previously uploaded
   const saved = localStorage.getItem('portfolioCSV');
   if (saved) {
-    const rows = parseCSV(saved);
-    if (rows.length) {
-      portfolio = rows;
+    const parsed = parseCSV(saved);
+    if (parsed.stocks.length) {
+      portfolio     = parsed.stocks;
+      cashPositions = parsed.cash;
       document.getElementById('csv-path').textContent = localStorage.getItem('csvName') || 'portfolio.csv';
       hideError();
       await refresh();
@@ -54,10 +56,11 @@ function pickFile() {
 }
 
 async function loadCSV(csvText, fileName) {
-  const rows = parseCSV(csvText);
-  if (!rows.length) { showError('No valid positions found in CSV.'); return; }
-  portfolio  = rows;
-  sparklines = {};
+  const parsed = parseCSV(csvText);
+  if (!parsed.stocks.length) { showError('No valid positions found in CSV.'); return; }
+  portfolio     = parsed.stocks;
+  cashPositions = parsed.cash;
+  sparklines    = {};
   sentiments = {};
   firstLoad  = true;
   localStorage.setItem('portfolioCSV', csvText);
@@ -72,25 +75,65 @@ async function loadCSV(csvText, fileName) {
 function parseCSV(text) {
   const clean = text.replace(/^﻿/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   const lines = clean.trim().split('\n').filter(l => l.trim());
-  if (lines.length < 2) return [];
+  if (lines.length < 2) return { stocks: [], cash: [] };
   const headers = splitCSVLine(lines[0]).map(h => h.toLowerCase().trim());
   const isRJ = headers.includes('symbol/cusip');
   if (isRJ) {
-    const iT = headers.indexOf('symbol/cusip');
-    const iS = headers.indexOf('quantity');
-    const iC = headers.indexOf('amount invested / unit');
+    const iT    = headers.indexOf('symbol/cusip');
+    const iS    = headers.indexOf('quantity');
+    const iC    = headers.indexOf('amount invested / unit');
     const iType = headers.indexOf('product type');
-    return lines.slice(1)
-      .map(l => splitCSVLine(l))
-      .filter(p => (p[iType]||'').toLowerCase().includes('stock') && /^[A-Za-z]{1,5}$/.test((p[iT]||'').trim()))
+    const iVal  = headers.indexOf('current value');
+    const iDesc = 0; // Description is always first column
+    const rows  = lines.slice(1).map(l => splitCSVLine(l));
+
+    const stocks = rows
+      .filter(p => {
+        const t = (p[iType]||'').toLowerCase();
+        return (t.includes('stock') || t.includes('fund') || t.includes('etf'))
+          && /^[A-Za-z]{1,5}$/.test((p[iT]||'').trim());
+      })
       .map(p => ({ ticker: p[iT].trim().toUpperCase(), shares: parseNum(p[iS]), avg_cost: parseNum(p[iC]) }))
       .filter(p => p.shares > 0);
+
+    const cash = rows
+      .filter(p => {
+        const t = (p[iType]||'').toLowerCase();
+        return t.includes('cash') || t.includes('fixed income');
+      })
+      .map(p => {
+        const t = (p[iType]||'').toLowerCase();
+        const rawDesc = (p[iDesc]||'').trim();
+        let category = 'Fixed Income';
+        if (t.includes('cash')) category = 'Cash';
+        // Shorten long descriptions
+        let name = rawDesc;
+        if (rawDesc.includes('TREASURY')) name = rawDesc.replace(/US TREASURY NOTES?\s*/i, 'T-Note ').split(' DUE')[0].trim();
+        else if (rawDesc.includes('MONEY MARKET') || rawDesc.includes('FIMM')) name = 'Money Market (FRGXX)';
+        else if (rawDesc.includes('RAYMOND JAMES BANK')) name = 'RJ Bank Deposit';
+        else if (rawDesc.includes('MARGIN')) name = 'Margin Balance';
+        else if (rawDesc.includes('PUERTO RICO')) name = 'Puerto Rico Bonds';
+        return { name, category, value: parseNum(p[iVal] || '0') };
+      })
+      .filter(p => p.value !== 0);
+
+    // Merge duplicate Puerto Rico into one
+    const cashMerged = [];
+    const prBonds = cash.filter(p => p.name === 'Puerto Rico Bonds');
+    const others   = cash.filter(p => p.name !== 'Puerto Rico Bonds');
+    if (prBonds.length) {
+      const total = prBonds.reduce((s, p) => s + p.value, 0);
+      cashMerged.push({ name: 'Puerto Rico Bonds', category: 'Fixed Income', value: total });
+    }
+    return { stocks, cash: [...others, ...cashMerged] };
   }
+  // Generic CSV fallback
   const iT = headers.indexOf('ticker'), iS = headers.indexOf('shares'), iC = headers.indexOf('avg_cost');
-  if (iT < 0 || iS < 0 || iC < 0) { showError('CSV needs: ticker, shares, avg_cost'); return []; }
-  return lines.slice(1)
+  if (iT < 0 || iS < 0 || iC < 0) { showError('CSV needs: ticker, shares, avg_cost'); return { stocks: [], cash: [] }; }
+  const stocks = lines.slice(1)
     .map(l => splitCSVLine(l)).filter(p => p[iT])
     .map(p => ({ ticker: p[iT].trim().toUpperCase(), shares: parseNum(p[iS]), avg_cost: parseNum(p[iC]) }));
+  return { stocks, cash: [] };
 }
 
 function splitCSVLine(line) {
@@ -444,18 +487,22 @@ async function fetchMarket() {
 }
 
 function renderHeroBanner() {
-  // Portfolio section
-  let totalValue = 0, totalCost = 0, dayGain = 0;
+  // Equity positions
+  let equityValue = 0, totalCost = 0, dayGain = 0;
   portfolio.forEach(pos => {
     const q = quotes[pos.ticker] || {};
     if (!q.price) return;
-    totalValue += pos.shares * q.price;
-    totalCost  += pos.shares * pos.avg_cost;
-    dayGain    += pos.shares * (q.change || 0);
+    equityValue += pos.shares * q.price;
+    totalCost   += pos.shares * pos.avg_cost;
+    dayGain     += pos.shares * (q.change || 0);
   });
+
+  // Cash & fixed income
+  const cashTotal = calcCashTotal();
+  const totalValue = equityValue + cashTotal;
   const pnl    = totalValue - totalCost;
   const pnlPct = totalCost ? (pnl / totalCost) * 100 : 0;
-  const dayPct = totalValue ? (dayGain / (totalValue - dayGain)) * 100 : 0;
+  const dayPct = equityValue ? (dayGain / (equityValue - dayGain)) * 100 : 0;
   const dc = dirClass(dayGain);
   const pc = dirClass(pnl);
 
@@ -474,6 +521,17 @@ function renderHeroBanner() {
   trEl.textContent = (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%';
   trEl.className   = `hero-stat-val ${pc}`;
   document.getElementById('hero-total-pnl').textContent = (pnl >= 0 ? '+' : '') + fmt$(pnl) + ' all time';
+
+  // Cash & Fixed Income breakdown
+  const cashEl = document.getElementById('hero-cash-val');
+  if (cashEl) {
+    cashEl.textContent = fmt$(cashTotal);
+    const cashByType = { Cash: 0, 'Fixed Income': 0 };
+    cashPositions.forEach(p => { cashByType[p.category] = (cashByType[p.category] || 0) + p.value; });
+    const subEl = document.getElementById('hero-cash-sub');
+    if (subEl) subEl.textContent =
+      `Cash ${fmt$(cashByType['Cash'] || 0)} · Bonds ${fmt$(cashByType['Fixed Income'] || 0)}`;
+  }
 
   // Index section
   if (!marketData) return;
@@ -509,10 +567,16 @@ function renderMovers() {
 }
 
 function calcTotalValue() {
-  return portfolio.reduce((s, p) => {
+  const stocks = portfolio.reduce((s, p) => {
     const q = quotes[p.ticker];
     return s + (q?.price ? p.shares * q.price : 0);
   }, 0);
+  const cash = cashPositions.reduce((s, p) => s + p.value, 0);
+  return stocks + cash;
+}
+
+function calcCashTotal() {
+  return cashPositions.reduce((s, p) => s + p.value, 0);
 }
 
 /* ── Sparklines ── */
