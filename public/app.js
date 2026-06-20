@@ -272,15 +272,24 @@ function parseCSV(text) {
 
       if (!sym || val === 0) return;
 
-      // CUSIP / Treasury bond: ≥8 chars and contains a digit
-      if (sym.length >= 8 && /\d/.test(sym)) {
-        const label = desc.includes('treas') ? desc.replace(/united states treas\w*\s*/i, 'T-Note ').split(' ').slice(0, 5).join(' ').trim() : sym;
+      // Treasury / bond: CUSIP symbol (8-9 alphanumeric chars w/ digits)
+      // OR description mentions treasury/note/bond
+      const isCUSIP = sym.length >= 8 && /\d/.test(sym) && /^[A-Z0-9]+$/.test(sym);
+      const isTreas = desc.includes('treas') || desc.includes(' note') || desc.includes('treasury');
+      if (isCUSIP || (isTreas && qty >= 100)) {
+        let label = sym;
+        if (isTreas) label = desc.replace(/united states treas\w*\s*/i, 'T-Note ').replace(/\s+/g, ' ').trim().split(' ').slice(0, 6).join(' ');
         cash.push({ name: label, category: 'Fixed Income', value: val });
         return;
       }
 
-      // Money market: $1.00 price or no quantity (SPAXX** with missing qty/price)
-      if ((lastPx > 0.99 && lastPx < 1.01) || (qty === 0 && val > 0)) {
+      // Money market: price ≈ $1.00, OR no price/qty (SPAXX-type rows),
+      // OR description mentions money market / mmkt
+      const isMM = (lastPx > 0.98 && lastPx < 1.02)
+        || (qty === 0 && val > 0)
+        || desc.includes('money market') || desc.includes('mmkt')
+        || desc.includes('cash equivalent');
+      if (isMM) {
         cash.push({ name: `Money Market (${sym})`, category: 'Cash', value: val });
         return;
       }
@@ -332,7 +341,9 @@ function parseCSV(text) {
       if (!sym || sym === 'TOTAL' || sym === 'GENERATED') return;
 
       // Money market funds ($1.00 NAV) or explicit CASH row → cash position
-      if (sym === 'CASH' || (lastPx > 0.99 && lastPx < 1.01 && qty > 100)) {
+      const descG = (r[headers.indexOf('description')] || '').toLowerCase();
+      if (sym === 'CASH' || (lastPx > 0.98 && lastPx < 1.02 && qty > 100)
+          || descG.includes('money market') || descG.includes('mmkt')) {
         if (val !== 0) cash.push({ name: sym === 'CASH' ? 'Cash' : `Money Market (${sym})`, category: 'Cash', value: val });
         return;
       }
