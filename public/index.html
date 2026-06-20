@@ -25,6 +25,7 @@
           <div class="market-dot" id="market-dot"></div>
           <span id="market-label">—</span>
         </div>
+        <button id="btn-demo" class="btn btn-secondary" onclick="toggleDemo()">🎭 Demo</button>
         <button id="btn-load" class="btn btn-secondary">Load CSV</button>
         <button id="btn-refresh" class="btn btn-primary">Refresh</button>
         <div id="refresh-ring" class="refresh-ring" title="Next auto-refresh">
@@ -45,47 +46,51 @@
 
       <!-- Hero banner -->
       <div class="hero-banner" id="hero-banner">
-        <div class="hero-portfolio">
-          <div class="hero-label">Total Portfolio Value</div>
-          <div class="hero-value" id="hero-value">—</div>
-          <div class="hero-sub" id="hero-sub">—</div>
+        <div class="hero-main">
+          <div class="hero-portfolio">
+            <div class="hero-label">Total Portfolio Value</div>
+            <div class="hero-value" id="hero-value">—</div>
+            <div class="hero-sub" id="hero-sub">—</div>
+          </div>
+          <div class="hero-divider"></div>
+          <div class="hero-stat">
+            <div class="hero-label">Day Gain / Loss</div>
+            <div class="hero-stat-val" id="hero-day-gain">—</div>
+            <div class="hero-stat-sub" id="hero-day-pct">—</div>
+          </div>
+          <div class="hero-stat">
+            <div class="hero-label">Total Return</div>
+            <div class="hero-stat-val" id="hero-total-return">—</div>
+            <div class="hero-stat-sub" id="hero-total-pnl">—</div>
+          </div>
+          <div class="hero-stat">
+            <div class="hero-label">Cash &amp; Treasuries</div>
+            <div class="hero-stat-val neutral" id="hero-cash-val">—</div>
+          </div>
+          <div class="hero-divider"></div>
+          <div class="hero-index" id="idx-DJIA">
+            <div class="hero-label">DJIA</div>
+            <div class="hero-idx-val">—</div>
+            <div class="hero-idx-chg">—</div>
+          </div>
+          <div class="hero-index" id="idx-NASDAQ">
+            <div class="hero-label">NASDAQ</div>
+            <div class="hero-idx-val">—</div>
+            <div class="hero-idx-chg">—</div>
+          </div>
+          <div class="hero-index" id="idx-SP500">
+            <div class="hero-label">S&amp;P 500</div>
+            <div class="hero-idx-val">—</div>
+            <div class="hero-idx-chg">—</div>
+          </div>
+          <div class="hero-index" id="idx-VIX">
+            <div class="hero-label">VIX</div>
+            <div class="hero-idx-val">—</div>
+            <div class="hero-idx-chg">—</div>
+          </div>
         </div>
-        <div class="hero-divider"></div>
-        <div class="hero-stat">
-          <div class="hero-label">Day Gain / Loss</div>
-          <div class="hero-stat-val" id="hero-day-gain">—</div>
-          <div class="hero-stat-sub" id="hero-day-pct">—</div>
-        </div>
-        <div class="hero-stat">
-          <div class="hero-label">Total Return</div>
-          <div class="hero-stat-val" id="hero-total-return">—</div>
-          <div class="hero-stat-sub" id="hero-total-pnl">—</div>
-        </div>
-        <div class="hero-stat">
-          <div class="hero-label">Cash &amp; Treasuries</div>
-          <div class="hero-stat-val neutral" id="hero-cash-val">—</div>
-        </div>
-        <div class="hero-divider"></div>
-        <div class="hero-index" id="idx-DJIA">
-          <div class="hero-label">DJIA</div>
-          <div class="hero-idx-val">—</div>
-          <div class="hero-idx-chg">—</div>
-        </div>
-        <div class="hero-index" id="idx-NASDAQ">
-          <div class="hero-label">NASDAQ</div>
-          <div class="hero-idx-val">—</div>
-          <div class="hero-idx-chg">—</div>
-        </div>
-        <div class="hero-index" id="idx-SP500">
-          <div class="hero-label">S&amp;P 500</div>
-          <div class="hero-idx-val">—</div>
-          <div class="hero-idx-chg">—</div>
-        </div>
-        <div class="hero-index" id="idx-VIX">
-          <div class="hero-label">VIX</div>
-          <div class="hero-idx-val">—</div>
-          <div class="hero-idx-chg">—</div>
-        </div>
+        <!-- Per-account daily strips (shown when 2+ portfolios active) -->
+        <div id="account-strips"></div>
       </div>
 
       <div class="home-section-title">Top Holdings · Market Value &gt; $750K</div>

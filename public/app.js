@@ -13,6 +13,8 @@ let countdown      = 300;
 let firstLoad      = true;
 let sentimentFetch = false;
 let marketData     = null;
+let demoMode       = false;
+let demoFactor     = 1;
 const INTERVAL     = 300;
 
 /* ── Boot ── */
@@ -115,7 +117,7 @@ function removePortfolio(id, e) {
   firstLoad = true;
   sparklines = {}; sentiments = {}; sentimentFetch = false;
   if (portfolio.length) refresh();
-  else { buildTable(); buildTiles(); renderSummary(); renderHeroBanner(); }
+  else { buildTable(); buildTiles(); renderSummary(); renderHeroBanner(); renderAccountStrips(); }
 }
 
 function togglePortfolio(id) {
@@ -125,7 +127,7 @@ function togglePortfolio(id) {
   renderPortfolioBar();
   firstLoad = true;
   if (portfolio.length) refresh();
-  else { buildTable(); buildTiles(); renderSummary(); renderHeroBanner(); }
+  else { buildTable(); buildTiles(); renderSummary(); renderHeroBanner(); renderAccountStrips(); }
 }
 
 function applyActivePortfolio() {
@@ -204,9 +206,25 @@ function calcPortfolioValue(p) {
 
 function fmtM(n) {
   if (!n || isNaN(n)) return '';
-  if (n >= 1_000_000) return '$' + (n / 1_000_000).toFixed(1) + 'M';
-  if (n >= 1_000)     return '$' + (n / 1_000).toFixed(0) + 'K';
-  return '$' + n.toFixed(0);
+  const v = demoMode ? n * demoFactor : n;
+  if (v >= 1_000_000) return '$' + (v / 1_000_000).toFixed(1) + 'M';
+  if (v >= 1_000)     return '$' + (v / 1_000).toFixed(0) + 'K';
+  return '$' + v.toFixed(0);
+}
+
+/* ── Demo / privacy mode ── */
+function toggleDemo() {
+  demoMode = !demoMode;
+  if (demoMode) demoFactor = 0.35 + Math.random() * 1.9; // 0.35× – 2.25×
+  const btn = document.getElementById('btn-demo');
+  btn.textContent = demoMode ? '🎭 Live' : '🎭 Demo';
+  btn.classList.toggle('btn-demo-active', demoMode);
+  renderHeroBanner();
+  renderAccountStrips();
+  renderPortfolioBar();
+  renderSummary();
+  buildTiles();
+  if (!firstLoad) updateTableCells();
 }
 
 function calcTotalAUM() {
@@ -549,6 +567,7 @@ async function refresh() {
   else           { updateTableCells(); updateTiles(); }
   renderSummary();
   renderHeroBanner();
+  renderAccountStrips();
   renderMovers();
   renderPortfolioBar(); // update AUM value in All tab
   if (Object.keys(sparklines).length === 0) fetchSparklines();
@@ -871,8 +890,7 @@ function renderHeroBanner() {
   const dc = dirClass(dayGain);
   const pc = dirClass(pnl);
 
-  const valStr = totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  document.getElementById('hero-value').textContent = '$' + valStr;
+  document.getElementById('hero-value').textContent = fmt$(totalValue);
 
   const heroSub = document.getElementById('hero-sub');
   heroSub.innerHTML = `<span class="${dc}">${dayGain >= 0 ? '+' : ''}${fmt$(dayGain)} today (${dayPct >= 0 ? '+' : ''}${dayPct.toFixed(2)}%)</span>`;
@@ -904,6 +922,39 @@ function renderHeroBanner() {
     chgEl.textContent = `${idx.change >= 0 ? '+' : ''}${idx.change.toFixed(2)} (${idx.pct >= 0 ? '+' : ''}${idx.pct.toFixed(2)}%)`;
     chgEl.className   = `hero-idx-chg ${dc2}`;
   });
+}
+
+/* ── Per-account daily strips ── */
+function renderAccountStrips() {
+  const el = document.getElementById('account-strips');
+  if (!el) return;
+  const active = portfolios.filter(p => activeIds.has(p.id));
+  if (active.length < 2) { el.innerHTML = ''; return; }
+
+  el.innerHTML = active.map(p => {
+    let eqVal = 0, totalCost = 0, dayGain = 0;
+    p.stocks.forEach(pos => {
+      const q     = quotes[pos.ticker] || {};
+      const price = q.price || (pos.csvValue && pos.shares ? pos.csvValue / pos.shares : 0);
+      if (!price) return;
+      eqVal     += pos.shares * price;
+      totalCost += pos.shares * pos.avg_cost;
+      if (q.price) dayGain += pos.shares * (q.change || 0);
+    });
+    const cashVal  = p.cash.reduce((s, c) => s + c.value, 0);
+    const totalVal = eqVal + cashVal;
+    const dayPct   = eqVal ? (dayGain / (eqVal - dayGain)) * 100 : 0;
+    const pnl      = totalVal - totalCost;
+    const pnlPct   = totalCost ? (pnl / totalCost) * 100 : 0;
+    const dc = dayGain >= 0 ? 'up' : 'down';
+    const pc = pnl >= 0 ? 'up' : 'down';
+    return `<div class="account-strip">
+      <div class="astrip-name">${escHtml(p.name)}</div>
+      <div class="astrip-val">${fmt$(totalVal)}</div>
+      <div class="astrip-gain ${dc}">${dayGain >= 0 ? '+' : ''}${fmt$(dayGain)}<span class="astrip-pct"> (${dayPct >= 0 ? '+' : ''}${dayPct.toFixed(2)}%)</span> <span class="astrip-label">today</span></div>
+      <div class="astrip-gain ${pc}" style="margin-left:auto">${pnl >= 0 ? '+' : ''}${fmt$(pnl)}<span class="astrip-pct"> (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)</span> <span class="astrip-label">all time</span></div>
+    </div>`;
+  }).join('');
 }
 
 /* ── Top movers ── */
@@ -1318,5 +1369,5 @@ function showLoading(on) { document.getElementById('loading-overlay').classList.
 function showError(msg)  { const b = document.getElementById('error-banner'); b.textContent = '⚠ ' + msg; b.classList.remove('hidden'); }
 function hideError()     { document.getElementById('error-banner').classList.add('hidden'); }
 function dirClass(v)     { return v == null || isNaN(v) ? 'neutral' : v > 0 ? 'up' : v < 0 ? 'down' : 'neutral'; }
-function fmt$(n)         { return n == null || isNaN(n) ? '—' : '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fmt$(n)         { if (n == null || isNaN(n)) return '—'; const v = demoMode ? n * demoFactor : n; return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function escHtml(s)      { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
