@@ -243,6 +243,91 @@ function parseCSV(text) {
 
   const isRJ = headers.includes('symbol/cusip');
 
+  /* ── Fidelity All-Accounts export ──
+     Multiple account sections each with their own header row.
+     Detected by scanning ALL lines for "qty (quantity)" + "mkt val (market value)" */
+  const isFidelityAll = !isRJ && lines.some(l => {
+    const cells = splitCSVLine(l).map(h => h.toLowerCase().trim());
+    return cells.includes('qty (quantity)') && cells.includes('mkt val (market value)');
+  });
+
+  if (isFidelityAll) {
+    const stockMap = {};
+    const cash     = [];
+    let iT=-1, iDesc=-1, iS=-1, iPx=-1, iVal=-1, iCost=-1, iType=-1;
+
+    lines.forEach(l => {
+      const r     = splitCSVLine(l).map(c => c.trim());
+      const lower = r.map(c => c.toLowerCase().trim());
+
+      // Detect / re-detect header rows (each account section has one)
+      if (lower.includes('qty (quantity)')) {
+        iT    = lower.indexOf('symbol');
+        iDesc = lower.indexOf('description');
+        iS    = lower.indexOf('qty (quantity)');
+        iPx   = lower.indexOf('price');
+        iVal  = lower.indexOf('mkt val (market value)');
+        iCost = lower.indexOf('cost basis');
+        iType = lower.indexOf('asset type');
+        return;
+      }
+
+      if (iT < 0) return; // no header seen yet
+
+      const rawSym = (r[iT] || '').trim();
+      // Normalize slash tickers (BRK/B → BRK.B) and strip trailing *
+      const sym  = rawSym.replace(/\*+$/, '').replace(/\//g, '.').toUpperCase();
+      const desc = (r[iDesc] || '').toLowerCase();
+      const val  = parseNum(r[iVal] || '0');
+      const qty  = parseNum(r[iS] || '0');
+      const px   = parseNum(r[iPx] || '0');
+      const cost = parseNum(r[iCost] || '0'); // total cost basis (not per-share)
+      const type = (iType >= 0 ? r[iType] || '' : '').toLowerCase();
+
+      // Skip summary / blank / account-name rows
+      if (!sym || sym === 'POSITIONS TOTAL' || val === 0) return;
+
+      // Cash & Money Market rows
+      const isCashRow = rawSym.toLowerCase().startsWith('cash')
+        || type.includes('cash') || type.includes('money market')
+        || desc.includes('money market') || desc.includes('mmkt');
+      if (isCashRow) {
+        cash.push({ name: 'Cash', category: 'Cash', value: val });
+        return;
+      }
+
+      // Treasury / bond by description
+      if (desc.includes('treas') || (desc.includes(' note') && qty >= 100)) {
+        cash.push({ name: desc.replace(/united states treas\w*\s*/i, 'T-Note ').trim().split(' ').slice(0, 6).join(' '), category: 'Fixed Income', value: val });
+        return;
+      }
+
+      if (qty <= 0) return;
+
+      // Merge same ticker across accounts; cost here is the TOTAL basis
+      if (!stockMap[sym]) stockMap[sym] = { ticker: sym, shares: 0, totalCost: 0, csvValue: 0 };
+      stockMap[sym].shares    += qty;
+      stockMap[sym].totalCost += cost;
+      stockMap[sym].csvValue  += val;
+    });
+
+    const stocks = Object.values(stockMap).map(s => ({
+      ticker:   s.ticker,
+      shares:   s.shares,
+      avg_cost: s.shares > 0 ? s.totalCost / s.shares : 0,
+      csvValue: s.csvValue,
+    }));
+
+    // Sum duplicate cash entries (cash appears once per account section)
+    const cashMerged = [];
+    cash.forEach(c => {
+      const ex = cashMerged.find(x => x.name === c.name);
+      if (ex) ex.value += c.value; else cashMerged.push({ ...c });
+    });
+
+    return { stocks, cash: cashMerged };
+  }
+
   /* ── Fidelity multi-account format ──
      Detected by: "account name", "current value", "average cost basis"
      Same ticker can appear in multiple account rows → merge by ticker  */
