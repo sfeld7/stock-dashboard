@@ -14,8 +14,8 @@
       <div class="header-left">
         <span class="logo">Portfolio <span>Tracker</span></span>
         <nav class="nav-tabs">
-          <span class="nav-tab active" id="tab-home" onclick="showTab('home')">Holdings</span>
-          <span class="nav-tab" id="tab-overview" onclick="showTab('overview')">Overview</span>
+          <span class="nav-tab active" id="tab-home" onclick="showTab('home')">Overview</span>
+          <span class="nav-tab" id="tab-overview" onclick="showTab('overview')">Table</span>
         </nav>
         <span id="csv-path" class="csv-path" title="Click to load a different file">No file loaded</span>
       </div>
@@ -39,7 +39,49 @@
 
     <!-- Home / Holdings Tiles page -->
     <div id="home-page" class="active">
-      <div class="home-section-title">Major Holdings · Market Value &gt; $750K</div>
+
+      <!-- Hero banner -->
+      <div class="hero-banner" id="hero-banner">
+        <div class="hero-portfolio">
+          <div class="hero-label">Total Portfolio Value</div>
+          <div class="hero-value" id="hero-value">—</div>
+          <div class="hero-sub" id="hero-sub">—</div>
+        </div>
+        <div class="hero-divider"></div>
+        <div class="hero-stat">
+          <div class="hero-label">Day Gain / Loss</div>
+          <div class="hero-stat-val" id="hero-day-gain">—</div>
+          <div class="hero-stat-sub" id="hero-day-pct">—</div>
+        </div>
+        <div class="hero-stat">
+          <div class="hero-label">Total Return</div>
+          <div class="hero-stat-val" id="hero-total-return">—</div>
+          <div class="hero-stat-sub" id="hero-total-pnl">—</div>
+        </div>
+        <div class="hero-divider"></div>
+        <div class="hero-index" id="idx-DJIA">
+          <div class="hero-label">DJIA</div>
+          <div class="hero-idx-val">—</div>
+          <div class="hero-idx-chg">—</div>
+        </div>
+        <div class="hero-index" id="idx-NASDAQ">
+          <div class="hero-label">NASDAQ</div>
+          <div class="hero-idx-val">—</div>
+          <div class="hero-idx-chg">—</div>
+        </div>
+        <div class="hero-index" id="idx-SP500">
+          <div class="hero-label">S&amp;P 500</div>
+          <div class="hero-idx-val">—</div>
+          <div class="hero-idx-chg">—</div>
+        </div>
+        <div class="hero-index" id="idx-VIX">
+          <div class="hero-label">VIX</div>
+          <div class="hero-idx-val">—</div>
+          <div class="hero-idx-chg">—</div>
+        </div>
+      </div>
+
+      <div class="home-section-title">Top Holdings · Market Value &gt; $750K</div>
       <div class="tiles-grid" id="tiles-grid">
         <div style="color:var(--dim);font-size:13px;padding:40px 0">Load a CSV to see your holdings.</div>
       </div>

@@ -126,9 +126,10 @@ async function refresh() {
   hideError();
   const prev = { ...quotes };
   quotes = res.quotes;
-  if (firstLoad) { buildTable(); buildTiles(); firstLoad = false; }
+  if (firstLoad) { buildTable(); buildTiles(); fetchMarket(); firstLoad = false; }
   else           { updateTableCells(); updateTiles(); }
   renderSummary();
+  renderHeroBanner();
   renderMovers();
   if (Object.keys(sparklines).length === 0) fetchSparklines();
   if (!sentimentFetch) fetchSentiments();
@@ -432,6 +433,63 @@ function renderSummary() {
   document.getElementById('position-count').textContent = valid;
   document.getElementById('position-sub').textContent   =
     `of ${portfolio.length} positions loaded`;
+}
+
+/* ── Hero Banner ── */
+let marketData = null;
+
+async function fetchMarket() {
+  const res = await apiFetch('/api/market');
+  if (res.ok) { marketData = res.indices; renderHeroBanner(); }
+}
+
+function renderHeroBanner() {
+  // Portfolio section
+  let totalValue = 0, totalCost = 0, dayGain = 0;
+  portfolio.forEach(pos => {
+    const q = quotes[pos.ticker] || {};
+    if (!q.price) return;
+    totalValue += pos.shares * q.price;
+    totalCost  += pos.shares * pos.avg_cost;
+    dayGain    += pos.shares * (q.change || 0);
+  });
+  const pnl    = totalValue - totalCost;
+  const pnlPct = totalCost ? (pnl / totalCost) * 100 : 0;
+  const dayPct = totalValue ? (dayGain / (totalValue - dayGain)) * 100 : 0;
+  const dc = dirClass(dayGain);
+  const pc = dirClass(pnl);
+
+  const valStr  = totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  document.getElementById('hero-value').textContent = '$' + valStr;
+
+  const heroSub = document.getElementById('hero-sub');
+  heroSub.innerHTML = `<span class="${dc}">${dayGain >= 0 ? '+' : ''}${fmt$(dayGain)} today (${dayPct >= 0 ? '+' : ''}${dayPct.toFixed(2)}%)</span>`;
+
+  const dgEl = document.getElementById('hero-day-gain');
+  dgEl.textContent  = (dayGain >= 0 ? '+' : '') + fmt$(dayGain);
+  dgEl.className    = `hero-stat-val ${dc}`;
+  document.getElementById('hero-day-pct').textContent = (dayPct >= 0 ? '+' : '') + dayPct.toFixed(2) + '% today';
+
+  const trEl = document.getElementById('hero-total-return');
+  trEl.textContent = (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%';
+  trEl.className   = `hero-stat-val ${pc}`;
+  document.getElementById('hero-total-pnl').textContent = (pnl >= 0 ? '+' : '') + fmt$(pnl) + ' all time';
+
+  // Index section
+  if (!marketData) return;
+  const idMap = { 'DJIA': 'idx-DJIA', 'NASDAQ': 'idx-NASDAQ', 'S&P 500': 'idx-SP500', 'VIX': 'idx-VIX' };
+  marketData.forEach(idx => {
+    const el = document.getElementById(idMap[idx.label]);
+    if (!el || idx.error) return;
+    const dc2 = idx.change >= 0 ? 'up' : 'down';
+    el.querySelector('.hero-idx-val').textContent =
+      idx.label === 'VIX'
+        ? idx.price.toFixed(2)
+        : idx.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const chgEl = el.querySelector('.hero-idx-chg');
+    chgEl.textContent = `${idx.change >= 0 ? '+' : ''}${idx.change.toFixed(2)} (${idx.pct >= 0 ? '+' : ''}${idx.pct.toFixed(2)}%)`;
+    chgEl.className   = `hero-idx-chg ${dc2}`;
+  });
 }
 
 /* ── Top movers ── */

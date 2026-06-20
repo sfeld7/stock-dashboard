@@ -404,6 +404,59 @@ footer {
 tbody tr { cursor: pointer; }
 
 /* ── Holdings Tiles ── */
+/* ── Hero Banner ── */
+.hero-banner {
+  display: flex; align-items: center; gap: 0;
+  background: #0f1e2e;
+  border-radius: 14px; margin-bottom: 24px;
+  padding: 0; overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0,0,0,.12);
+}
+
+.hero-portfolio {
+  padding: 22px 28px; flex-shrink: 0;
+  background: linear-gradient(135deg, #1d4ed8 0%, #1e3a8a 100%);
+  min-width: 240px;
+}
+.hero-value {
+  font-size: 30px; font-weight: 300; color: #ffffff;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.5px;
+  margin: 4px 0 2px;
+}
+.hero-sub { font-size: 12px; color: rgba(255,255,255,.65); }
+.hero-sub .up   { color: #4ade80; }
+.hero-sub .down { color: #f87171; }
+
+.hero-stat {
+  padding: 22px 24px; flex-shrink: 0;
+}
+.hero-stat-val {
+  font-size: 18px; font-weight: 500; font-variant-numeric: tabular-nums;
+  margin: 4px 0 2px;
+}
+.hero-stat-sub { font-size: 11px; color: #4a6a8a; }
+
+.hero-divider { width: 1px; background: #1e3a52; align-self: stretch; flex-shrink: 0; margin: 14px 4px; }
+
+.hero-index {
+  padding: 22px 20px; flex: 1; min-width: 100px;
+}
+.hero-idx-val {
+  font-size: 16px; font-weight: 500; color: #c4d4e4;
+  font-variant-numeric: tabular-nums; margin: 4px 0 2px;
+}
+.hero-idx-chg { font-size: 11px; font-variant-numeric: tabular-nums; }
+.hero-idx-chg.up   { color: #4ade80; }
+.hero-idx-chg.down { color: #f87171; }
+.hero-idx-chg.flat { color: #4a6a8a; }
+
+.hero-label {
+  font-size: 9px; font-weight: 600; letter-spacing: 1.5px;
+  text-transform: uppercase; color: #4a6a8a;
+}
+.hero-portfolio .hero-label { color: rgba(255,255,255,.55); }
+
+/* ── Holdings Tiles ── */
 .home-section-title {
   font-size: 11px; font-weight: 600; color: var(--muted);
   letter-spacing: 1.5px; text-transform: uppercase;
