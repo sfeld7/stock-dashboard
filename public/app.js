@@ -234,6 +234,75 @@ function parseCSV(text) {
 
   const isRJ = headers.includes('symbol/cusip');
 
+  /* ── Fidelity multi-account format ──
+     Detected by: "account name", "current value", "average cost basis"
+     Same ticker can appear in multiple account rows → merge by ticker  */
+  const isFidelityMA = !isRJ
+    && headers.includes('account name')
+    && headers.includes('current value')
+    && headers.includes('average cost basis');
+
+  if (isFidelityMA) {
+    const iT    = headers.indexOf('symbol');
+    const iDesc = headers.indexOf('description');
+    const iS    = headers.indexOf('quantity');
+    const iPx   = headers.indexOf('last price');
+    const iVal  = headers.indexOf('current value');
+    const iC    = headers.indexOf('average cost basis'); // per-share cost
+
+    const stockMap = {};
+    const cash     = [];
+
+    dataRows.forEach(r => {
+      const sym    = (r[iT] || '').trim().replace(/\*+$/, '').toUpperCase();
+      const desc   = (r[iDesc] || '').toLowerCase();
+      const val    = parseNum(r[iVal] || '0');
+      const qty    = parseNum(r[iS] || '0');
+      const lastPx = parseNum(r[iPx] || '0');
+      const cost   = parseNum(r[iC] || '0');
+
+      if (!sym || val === 0) return;
+
+      // CUSIP / Treasury bond: ≥8 chars and contains a digit
+      if (sym.length >= 8 && /\d/.test(sym)) {
+        const label = desc.includes('treas') ? desc.replace(/united states treas\w*\s*/i, 'T-Note ').split(' ').slice(0, 5).join(' ').trim() : sym;
+        cash.push({ name: label, category: 'Fixed Income', value: val });
+        return;
+      }
+
+      // Money market: $1.00 price or no quantity (SPAXX** with missing qty/price)
+      if ((lastPx > 0.99 && lastPx < 1.01) || (qty === 0 && val > 0)) {
+        cash.push({ name: `Money Market (${sym})`, category: 'Cash', value: val });
+        return;
+      }
+
+      if (qty <= 0) return;
+
+      // Merge same ticker across accounts (weighted avg cost)
+      if (!stockMap[sym]) stockMap[sym] = { ticker: sym, shares: 0, totalCost: 0, csvValue: 0 };
+      stockMap[sym].shares    += qty;
+      stockMap[sym].totalCost += qty * cost;
+      stockMap[sym].csvValue  += val;
+    });
+
+    const stocks = Object.values(stockMap).map(s => ({
+      ticker:   s.ticker,
+      shares:   s.shares,
+      avg_cost: s.shares > 0 ? s.totalCost / s.shares : 0,
+      csvValue: s.csvValue,
+    }));
+
+    // Merge duplicate cash entries of the same name
+    const cashMerged = [];
+    cash.forEach(c => {
+      const ex = cashMerged.find(x => x.name === c.name);
+      if (ex) ex.value += c.value;
+      else cashMerged.push({ ...c });
+    });
+
+    return { stocks, cash: cashMerged };
+  }
+
   /* ── Generic brokerage format (e.g. Fidelity, Schwab, etc.) ──
      Detected by: "symbol", "last price $", "value $" columns        */
   const isGeneric = !isRJ && headers.includes('symbol') && headers.includes('last price $') && headers.includes('value $');
