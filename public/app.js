@@ -219,6 +219,7 @@ function toggleDemo() {
   const btn = document.getElementById('btn-demo');
   btn.textContent = demoMode ? '🎭 Live' : '🎭 Demo';
   btn.classList.toggle('btn-demo-active', demoMode);
+  document.getElementById('demo-banner').classList.toggle('visible', demoMode);
   renderHeroBanner();
   renderAccountStrips();
   renderPortfolioBar();
@@ -952,7 +953,7 @@ function renderAccountStrips() {
       <div class="astrip-name">${escHtml(p.name)}</div>
       <div class="astrip-val">${fmt$(totalVal)}</div>
       <div class="astrip-gain ${dc}">${dayGain >= 0 ? '+' : ''}${fmt$(dayGain)}<span class="astrip-pct"> (${dayPct >= 0 ? '+' : ''}${dayPct.toFixed(2)}%)</span> <span class="astrip-label">today</span></div>
-      <div class="astrip-gain ${pc}" style="margin-left:auto">${pnl >= 0 ? '+' : ''}${fmt$(pnl)}<span class="astrip-pct"> (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)</span> <span class="astrip-label">all time</span></div>
+      <div class="astrip-gain ${pc}">${pnl >= 0 ? '+' : ''}${fmt$(pnl)}<span class="astrip-pct"> (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)</span> <span class="astrip-label">all time</span></div>
     </div>`;
   }).join('');
 }

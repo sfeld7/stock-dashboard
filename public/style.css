@@ -25,7 +25,7 @@
 
 html, body { height: 100%; background: var(--bg0); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; font-size: 13px; overflow: hidden; }
 
-#app { display: grid; grid-template-rows: 46px auto 1fr 28px; height: 100vh; overflow: hidden; }
+#app { display: grid; grid-template-rows: 46px auto auto 1fr 28px; height: 100vh; overflow: hidden; }
 
 /* ── Portfolio bar ── */
 #portfolio-bar {
@@ -470,7 +470,9 @@ tbody tr { cursor: pointer; }
 /* ── Per-account daily strips ── */
 #account-strips:not(:empty) { border-top: 1px solid #1a3350; }
 .account-strip {
-  display: flex; align-items: center; gap: 28px;
+  display: grid;
+  grid-template-columns: 170px 160px 1fr 1fr;
+  align-items: center;
   padding: 10px 28px;
   border-top: 0.5px solid #162a40;
   font-size: 12px; font-variant-numeric: tabular-nums;
@@ -479,17 +481,32 @@ tbody tr { cursor: pointer; }
 .astrip-name {
   font-size: 10px; font-weight: 700; letter-spacing: 1px;
   text-transform: uppercase; color: #7ab0d4;
-  min-width: 150px; flex-shrink: 0;
 }
 .astrip-val {
   font-size: 15px; font-weight: 400; color: #eaf2fa;
-  min-width: 140px; flex-shrink: 0;
 }
 .astrip-gain { font-size: 13px; font-weight: 500; }
 .astrip-gain.up   { color: #4ade80; }
 .astrip-gain.down { color: #f87171; }
 .astrip-pct  { font-size: 11px; opacity: .85; }
 .astrip-label{ font-size: 10px; color: #4a6a8a; }
+
+/* ── Demo mode banner ── */
+#demo-banner {
+  display: none;
+  align-items: center; justify-content: center; gap: 10px;
+  background: #78350f; color: #fbbf24;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.6px;
+  padding: 5px 20px;
+  border-bottom: 1px solid #92400e;
+  text-transform: uppercase;
+  animation: demoPulse 2.5s ease-in-out infinite;
+}
+#demo-banner.visible { display: flex; }
+@keyframes demoPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: .65; }
+}
 
 .hero-portfolio {
   padding: 22px 28px; flex-shrink: 0;
