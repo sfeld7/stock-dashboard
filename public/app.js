@@ -222,8 +222,54 @@ function parseCSV(text) {
   const clean = text.replace(/^﻿/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   const lines = clean.trim().split('\n').filter(l => l.trim());
   if (lines.length < 2) return { stocks: [], cash: [] };
-  const headers = splitCSVLine(lines[0]).map(h => h.toLowerCase().trim());
-  const isRJ    = headers.includes('symbol/cusip');
+
+  // Some exports prefix with a metadata row (e.g. "Account Summary,...")
+  // Detect and skip it so we land on the real header row
+  let headerIdx = 0;
+  if (/^account summary/i.test(splitCSVLine(lines[0])[0] || '')) headerIdx = 1;
+  if (lines.length <= headerIdx) return { stocks: [], cash: [] };
+
+  const headers = splitCSVLine(lines[headerIdx]).map(h => h.toLowerCase().trim());
+  const dataRows = lines.slice(headerIdx + 1).map(l => splitCSVLine(l));
+
+  const isRJ = headers.includes('symbol/cusip');
+
+  /* ── Generic brokerage format (e.g. Fidelity, Schwab, etc.) ──
+     Detected by: "symbol", "last price $", "value $" columns        */
+  const isGeneric = !isRJ && headers.includes('symbol') && headers.includes('last price $') && headers.includes('value $');
+  if (isGeneric) {
+    const iT     = headers.indexOf('symbol');
+    const iS     = headers.indexOf('quantity');
+    const iC     = headers.indexOf('price paid $');
+    const iVal   = headers.indexOf('value $');
+    const iPx    = headers.indexOf('last price $');
+    const stocks = [], cash = [];
+
+    dataRows.forEach(r => {
+      const sym      = (r[iT] || '').trim().toUpperCase();
+      const val      = parseNum(r[iVal] || '0');
+      const qty      = parseNum(r[iS] || '0');
+      const lastPx   = parseNum(r[iPx] || '0');
+
+      if (!sym || sym === 'TOTAL' || sym === 'GENERATED') return;
+
+      // Money market funds ($1.00 NAV) or explicit CASH row → cash position
+      if (sym === 'CASH' || (lastPx > 0.99 && lastPx < 1.01 && qty > 100)) {
+        if (val !== 0) cash.push({ name: sym === 'CASH' ? 'Cash' : `Money Market (${sym})`, category: 'Cash', value: val });
+        return;
+      }
+
+      if (qty <= 0 || val <= 0) return;
+      stocks.push({
+        ticker:   sym,
+        shares:   qty,
+        avg_cost: parseNum(r[iC] || '0'),
+        csvValue: val,
+      });
+    });
+
+    return { stocks, cash };
+  }
 
   if (isRJ) {
     const iT    = headers.indexOf('symbol/cusip');
@@ -232,7 +278,7 @@ function parseCSV(text) {
     const iType = headers.indexOf('product type');
     const iVal  = headers.indexOf('current value');
     const iDesc = 0;
-    const rows  = lines.slice(1).map(l => splitCSVLine(l));
+    const rows  = dataRows;
 
     const stocks = rows
       .filter(p => {
@@ -281,8 +327,7 @@ function parseCSV(text) {
   // Generic CSV fallback
   const iT = headers.indexOf('ticker'), iS = headers.indexOf('shares'), iC = headers.indexOf('avg_cost');
   if (iT < 0 || iS < 0 || iC < 0) { showError('CSV needs: ticker, shares, avg_cost'); return { stocks: [], cash: [] }; }
-  const stocks = lines.slice(1)
-    .map(l => splitCSVLine(l)).filter(p => p[iT])
+  const stocks = dataRows.filter(p => p[iT])
     .map(p => ({ ticker: p[iT].trim().toUpperCase(), shares: parseNum(p[iS]), avg_cost: parseNum(p[iC]), csvValue: 0 }));
   return { stocks, cash: [] };
 }
