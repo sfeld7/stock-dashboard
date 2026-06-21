@@ -586,11 +586,11 @@ function showTab(tab) {
 }
 
 /* ── Holdings Tiles ── */
-const TILE_THRESHOLD = 750_000;
-
 function majorHoldings() {
-  return sortedRows().filter(r => !isNaN(r.mktValue) && r.mktValue >= TILE_THRESHOLD)
-    .sort((a, b) => b.mktValue - a.mktValue);
+  return sortedRows()
+    .filter(r => !isNaN(r.mktValue) && r.mktValue > 0)
+    .sort((a, b) => b.mktValue - a.mktValue)
+    .slice(0, 8);
 }
 
 function buildTiles() {
