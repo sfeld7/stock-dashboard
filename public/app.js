@@ -22,6 +22,10 @@ window.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-refresh').addEventListener('click', triggerRefresh);
   document.getElementById('btn-load').addEventListener('click', pickFile);
   document.getElementById('csv-path').addEventListener('click', pickFile);
+  document.getElementById('ask-form').addEventListener('submit', e => {
+    e.preventDefault();
+    askPortfolio();
+  });
   document.querySelectorAll('thead th[data-col]').forEach(th =>
     th.addEventListener('click', () => onSort(th.dataset.col))
   );
@@ -985,6 +989,82 @@ function calcTotalValue() {
 
 function calcCashTotal() {
   return cashPositions.reduce((s, p) => s + p.value, 0);
+}
+
+/* ── Ask Portfolio ── */
+let askInFlight = false;
+
+function scaleDemo(n) { return demoMode ? n * demoFactor : n; }
+function round2(n)    { return Math.round(n * 100) / 100; }
+
+function buildPortfolioSnapshot() {
+  const holdings = sortedRows()
+    .filter(r => !isNaN(r.mktValue) && r.mktValue > 0)
+    .map(r => ({
+      ticker:       r.ticker,
+      name:         r.shortName || null,
+      shares:       r.shares,
+      price:        isNaN(r.price) ? null : round2(r.price),
+      marketValue:  round2(scaleDemo(r.mktValue)),
+      weightPct:    isNaN(r.weight) ? null : round2(r.weight),
+      costBasis:    round2(scaleDemo(r.costBasis)),
+      gainLoss:     isNaN(r.pnl) ? null : round2(scaleDemo(r.pnl)),
+      gainLossPct:  isNaN(r.pnlPct) ? null : round2(r.pnlPct),
+      dayChangePct: r.changePct != null ? round2(r.changePct) : null,
+    }))
+    .sort((a, b) => b.marketValue - a.marketValue);
+
+  const cash = cashPositions.map(c => ({
+    name: c.name, category: c.category, value: round2(scaleDemo(c.value)),
+  }));
+
+  return {
+    totalValue:    round2(scaleDemo(calcTotalValue())),
+    positionCount: holdings.length,
+    holdings,
+    cash,
+    cashTotal: round2(scaleDemo(calcCashTotal())),
+  };
+}
+
+async function askPortfolio() {
+  const input    = document.getElementById('ask-input');
+  const question = input.value.trim();
+  if (!question || askInFlight) return;
+
+  if (!portfolio.length) {
+    showAskAnswer('Load a portfolio CSV first so there’s something to analyze.', 'error');
+    return;
+  }
+
+  askInFlight = true;
+  const btn = document.getElementById('ask-submit');
+  btn.disabled = true;
+  showAskAnswer('Thinking…', 'loading');
+
+  try {
+    const res = await fetch('/api/ask', {
+      method:  'POST',
+      headers: { 'content-type': 'application/json' },
+      body:    JSON.stringify({ question, snapshot: buildPortfolioSnapshot() }),
+    }).then(r => r.json());
+
+    if (res.ok) showAskAnswer(res.answer, null);
+    else        showAskAnswer(res.error || 'Something went wrong.', 'error');
+  } catch (e) {
+    showAskAnswer(e.message, 'error');
+  } finally {
+    askInFlight = false;
+    btn.disabled = false;
+  }
+}
+
+function showAskAnswer(text, state) {
+  const panel = document.getElementById('ask-answer');
+  panel.textContent = text;
+  panel.classList.remove('hidden', 'ask-loading', 'ask-error');
+  if (state === 'loading') panel.classList.add('ask-loading');
+  if (state === 'error')   panel.classList.add('ask-error');
 }
 
 /* ── Sparklines ── */

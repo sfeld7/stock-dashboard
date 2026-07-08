@@ -25,7 +25,16 @@
 
 html, body { height: 100%; background: var(--bg0); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; font-size: 13px; overflow: hidden; }
 
-#app { display: grid; grid-template-rows: 46px auto auto 1fr 28px; height: 100vh; overflow: hidden; }
+#app { display: grid; grid-template-rows: 46px auto auto auto 1fr 28px; height: 100vh; overflow: hidden; }
+
+/* Explicit row assignment: keeps layout correct regardless of which
+   optional bars (demo banner, portfolio bar) are hidden at a given time */
+#app > header               { grid-row: 1; }
+#ask-section                { grid-row: 2; }
+#demo-banner                { grid-row: 3; }
+#portfolio-bar               { grid-row: 4; }
+#home-page, #overview-page  { grid-row: 5; }
+#app > footer                { grid-row: 6; }
 
 /* ── Portfolio bar ── */
 #portfolio-bar {
@@ -149,6 +158,35 @@ header .market-dot.open { background: #4ade80; box-shadow: 0 0 5px #4ade80; }
 .ring-bg   { fill: none; stroke: var(--line2); stroke-width: 2.5; }
 .ring-fill { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 75.4; transition: stroke-dashoffset 1s linear; }
 #ring-label { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 9px; font-weight: 600; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+/* ── Ask Portfolio bar ── */
+#ask-section {
+  background: var(--bg1);
+  border-bottom: 0.5px solid var(--line);
+  padding: 10px 20px;
+}
+.ask-bar { display: flex; align-items: center; gap: 10px; }
+.ask-icon { color: var(--accent); font-size: 14px; flex-shrink: 0; }
+.ask-input {
+  flex: 1; font: inherit; font-size: 13px;
+  background: var(--bg2);
+  border: 0.5px solid var(--line2); border-radius: 6px;
+  padding: 7px 12px; color: var(--text); outline: none;
+  transition: border-color .15s, background .15s;
+}
+.ask-input::placeholder { color: var(--dim); }
+.ask-input:focus { border-color: var(--accent3); background: var(--bg1); }
+.ask-submit-btn { padding: 7px 16px; font-size: 12px; flex-shrink: 0; }
+.ask-submit-btn:disabled { opacity: .5; cursor: default; }
+.ask-answer {
+  margin-top: 10px; padding: 12px 14px;
+  background: var(--accent2); border: 0.5px solid var(--accent3);
+  border-radius: var(--radius); font-size: 12.5px; line-height: 1.6;
+  color: var(--text); white-space: pre-wrap;
+}
+.ask-answer.hidden { display: none; }
+.ask-answer.ask-loading { color: var(--dim); font-style: italic; }
+.ask-answer.ask-error { background: var(--red-bg); border-color: var(--red-bd); color: var(--red); }
 
 /* ── Summary bar ── */
 #summary-bar {
