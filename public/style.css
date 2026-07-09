@@ -179,14 +179,25 @@ header .market-dot.open { background: #4ade80; box-shadow: 0 0 5px #4ade80; }
 .ask-submit-btn { padding: 7px 16px; font-size: 12px; flex-shrink: 0; }
 .ask-submit-btn:disabled { opacity: .5; cursor: default; }
 .ask-answer {
-  margin-top: 10px; padding: 12px 14px;
+  position: relative;
+  margin-top: 10px; padding: 12px 30px 12px 14px;
   background: var(--accent2); border: 0.5px solid var(--accent3);
   border-radius: var(--radius); font-size: 12.5px; line-height: 1.6;
-  color: var(--text); white-space: pre-wrap;
+  color: var(--text);
 }
+.ask-answer-text { white-space: pre-wrap; }
 .ask-answer.hidden { display: none; }
 .ask-answer.ask-loading { color: var(--dim); font-style: italic; }
 .ask-answer.ask-error { background: var(--red-bg); border-color: var(--red-bd); color: var(--red); }
+.ask-clear {
+  position: absolute; top: 8px; right: 8px;
+  width: 20px; height: 20px; border-radius: 4px;
+  border: none; background: transparent; cursor: pointer;
+  font-size: 11px; color: var(--dim); opacity: 0.6;
+  transition: opacity .15s, background .15s;
+}
+.ask-clear:hover { opacity: 1; background: rgba(0,0,0,.06); }
+.ask-answer.ask-error .ask-clear { color: var(--red); }
 
 /* ── Summary bar ── */
 #summary-bar {

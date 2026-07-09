@@ -1,4 +1,7 @@
 {
   "version": 2,
-  "outputDirectory": "public"
+  "outputDirectory": "public",
+  "functions": {
+    "api/ask.js": { "maxDuration": 30 }
+  }
 }

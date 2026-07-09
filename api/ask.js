@@ -1,18 +1,51 @@
+const { httpsGet, FINNHUB_KEY } = require('./_lib/helpers');
+
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
+
+const MAX_ANALYST_TICKERS = 25;
+const ANALYST_BATCH_SIZE  = 8;
 
 const SYSTEM_PROMPT = `You are a portfolio analyst embedded in a personal stock dashboard.
 You'll be given a JSON snapshot of the user's current holdings (tickers, shares, market
-values, weights, cost basis, gain/loss, day change) and cash/fixed-income positions, plus
-a question from the user.
+values, weights, cost basis, gain/loss, day change) and cash/fixed-income positions, an
+analystRatings object keyed by ticker (aggregated Wall Street analyst buy/hold/sell counts
+for the most recent month, from Finnhub), and a question from the user.
 
 Answer directly and concisely using the data provided. Reference specific tickers, dollar
 amounts, and percentages from the snapshot to back up your points. If the question asks
 about concentration risk, call out any position or sector over roughly 15-20% of the
-portfolio. If data needed to answer isn't in the snapshot, say so plainly instead of
-guessing. End with a one-line reminder that this isn't financial advice only if the
-question calls for a recommendation or opinion, not for purely factual lookups.
+portfolio. If the question asks for an opinion or take on a specific name, summarize the
+analyst consensus from analystRatings (e.g. "22 buy vs 2 sell") if that ticker is present -
+this is an aggregated ratings count, not a written research report, so describe it as
+"analyst consensus" rather than implying a single report or source. If data needed to
+answer isn't in the snapshot or analystRatings, say so plainly instead of guessing. End
+with a one-line reminder that this isn't financial advice only if the question calls for a
+recommendation or opinion, not for purely factual lookups.
 
 Keep the answer under 200 words unless the question requires a breakdown or list.`;
+
+async function fetchAnalystRatings(tickers) {
+  const ratings = {};
+  for (let i = 0; i < tickers.length; i += ANALYST_BATCH_SIZE) {
+    const batch   = tickers.slice(i, i + ANALYST_BATCH_SIZE);
+    const results = await Promise.allSettled(batch.map(ticker =>
+      httpsGet(`https://finnhub.io/api/v1/stock/recommendation?symbol=${encodeURIComponent(ticker)}&token=${FINNHUB_KEY}`)
+    ));
+    results.forEach((r, j) => {
+      const ticker = batch[j];
+      if (r.status !== 'fulfilled') return;
+      try {
+        const trend = JSON.parse(r.value.body);
+        if (Array.isArray(trend) && trend.length) {
+          const { period, strongBuy, buy, hold, sell, strongSell } = trend[0];
+          ratings[ticker] = { period, strongBuy, buy, hold, sell, strongSell };
+        }
+      } catch { /* skip tickers with no usable data */ }
+    });
+    if (i + ANALYST_BATCH_SIZE < tickers.length) await new Promise(r => setTimeout(r, 400));
+  }
+  return ratings;
+}
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
@@ -38,6 +71,10 @@ module.exports = async (req, res) => {
   const trimmedQuestion = question.trim().slice(0, 300);
 
   try {
+    const tickers = [...new Set(snapshot.holdings.map(h => h.ticker).filter(Boolean))]
+      .slice(0, MAX_ANALYST_TICKERS);
+    const analystRatings = FINNHUB_KEY ? await fetchAnalystRatings(tickers) : {};
+
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -53,7 +90,9 @@ module.exports = async (req, res) => {
         messages: [
           {
             role: 'user',
-            content: `Portfolio snapshot (JSON):\n${JSON.stringify(snapshot)}\n\nQuestion: ${trimmedQuestion}`,
+            content: `Portfolio snapshot (JSON):\n${JSON.stringify(snapshot)}\n\n` +
+              `analystRatings (JSON, keyed by ticker):\n${JSON.stringify(analystRatings)}\n\n` +
+              `Question: ${trimmedQuestion}`,
           },
         ],
       }),

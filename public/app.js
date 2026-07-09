@@ -26,6 +26,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     e.preventDefault();
     askPortfolio();
   });
+  document.getElementById('ask-clear').addEventListener('click', clearAsk);
   document.querySelectorAll('thead th[data-col]').forEach(th =>
     th.addEventListener('click', () => onSort(th.dataset.col))
   );
@@ -1061,10 +1062,20 @@ async function askPortfolio() {
 
 function showAskAnswer(text, state) {
   const panel = document.getElementById('ask-answer');
-  panel.textContent = text;
+  document.getElementById('ask-answer-text').textContent = text;
   panel.classList.remove('hidden', 'ask-loading', 'ask-error');
   if (state === 'loading') panel.classList.add('ask-loading');
   if (state === 'error')   panel.classList.add('ask-error');
+}
+
+function clearAsk() {
+  const panel = document.getElementById('ask-answer');
+  panel.classList.add('hidden');
+  panel.classList.remove('ask-loading', 'ask-error');
+  document.getElementById('ask-answer-text').textContent = '';
+  const input = document.getElementById('ask-input');
+  input.value = '';
+  input.focus();
 }
 
 /* ── Sparklines ── */
