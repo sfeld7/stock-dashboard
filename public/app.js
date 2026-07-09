@@ -111,20 +111,6 @@ async function addPortfolioFromCSV(csvText, fileName) {
   startAutoRefresh();
 }
 
-function removePortfolio(id, e) {
-  if (e) e.stopPropagation();
-  portfolios = portfolios.filter(p => p.id !== id);
-  activeIds.delete(id);
-  applyActivePortfolio();
-  savePortfolios();
-  renderPortfolioBar();
-  updateCsvPathLabel();
-  firstLoad = true;
-  sparklines = {}; sentiments = {}; sentimentFetch = false;
-  if (portfolio.length) refresh();
-  else { buildTable(); buildTiles(); renderSummary(); renderHeroBanner(); renderAccountStrips(); }
-}
-
 function togglePortfolio(id) {
   if (activeIds.has(id)) activeIds.delete(id);
   else activeIds.add(id);
@@ -192,7 +178,6 @@ function renderPortfolioBar() {
       <span class="pcheck-box">${checked ? '●' : '○'}</span>
       <span class="pcheck-name">${escHtml(p.name)}</span>
       <span class="pcheck-val">${fmtM(val)}</span>
-      <span class="pcheck-x" onclick="removePortfolio('${p.id}',event)">✕</span>
     </div>`;
   }).join('');
 

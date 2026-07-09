@@ -71,11 +71,6 @@ html, body { height: 100%; background: var(--bg0); color: var(--text); font-fami
   font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums;
 }
 .pcheck-item.checked .pcheck-val { color: var(--accent); opacity: 0.75; }
-.pcheck-x {
-  font-size: 9px; color: var(--dim); opacity: 0.5; margin-left: 2px;
-  padding: 1px 2px; border-radius: 2px; line-height: 1;
-}
-.pcheck-x:hover { opacity: 1; color: var(--red); }
 .ptab-add {
   display: flex; align-items: center; gap: 7px;
   padding: 5px 14px; border-radius: 20px;
