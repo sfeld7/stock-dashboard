@@ -65,7 +65,7 @@ module.exports = async (req, res) => {
     }
 
     const answer = (data.content || []).map(block => block.text || '').join('').trim();
-    res.status(200).json({ ok: true, answer: answer || 'No answer returned.' });
+    res.status(200).json({ ok: true, answer: answer || 'No answer returned.', _debug: answer ? undefined : data });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
