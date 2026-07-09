@@ -47,7 +47,8 @@ module.exports = async (req, res) => {
       },
       body: JSON.stringify({
         model:      'claude-sonnet-5',
-        max_tokens: 700,
+        max_tokens: 800,
+        thinking:   { type: 'disabled' },
         system:     SYSTEM_PROMPT,
         messages: [
           {
@@ -64,8 +65,12 @@ module.exports = async (req, res) => {
       return;
     }
 
-    const answer = (data.content || []).map(block => block.text || '').join('').trim();
-    res.status(200).json({ ok: true, answer: answer || 'No answer returned.', _debug: answer ? undefined : data });
+    const answer = (data.content || [])
+      .filter(block => block.type === 'text')
+      .map(block => block.text)
+      .join('')
+      .trim();
+    res.status(200).json({ ok: true, answer: answer || 'No answer returned.' });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
