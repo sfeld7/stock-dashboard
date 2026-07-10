@@ -15,6 +15,7 @@ let sentimentFetch = false;
 let marketData     = null;
 let demoMode       = false;
 let demoFactor     = 1;
+let syncPasscode   = localStorage.getItem('syncPasscode') || null;
 const INTERVAL     = 300;
 
 /* ── Boot ── */
@@ -30,6 +31,17 @@ window.addEventListener('DOMContentLoaded', async () => {
   document.querySelectorAll('thead th[data-col]').forEach(th =>
     th.addEventListener('click', () => onSort(th.dataset.col))
   );
+  document.getElementById('btn-sync').addEventListener('click', openSyncModal);
+  document.getElementById('sync-close').addEventListener('click', closeSyncModal);
+  document.getElementById('sync-backdrop').addEventListener('click', e => {
+    if (e.target === document.getElementById('sync-backdrop')) closeSyncModal();
+  });
+  document.getElementById('sync-form').addEventListener('submit', e => {
+    e.preventDefault();
+    connectSync(document.getElementById('sync-input').value);
+  });
+  document.getElementById('sync-disconnect').addEventListener('click', disconnectSync);
+  updateSyncButton();
 
   initModal();
   updateMarketStatus();
@@ -63,6 +75,9 @@ window.addEventListener('DOMContentLoaded', async () => {
       }
     }
   }
+
+  // Pull latest from cloud sync, if this device is already linked
+  if (syncPasscode) await autoSyncOnBoot();
 
   if (portfolios.length) {
     portfolios.forEach(p => activeIds.add(p.id)); // start with all checked
@@ -155,6 +170,106 @@ function savePortfolios() {
   localStorage.setItem('portfoliosData', JSON.stringify(
     portfolios.map(p => ({ id: p.id, name: p.name, csv: p._csv }))
   ));
+  if (syncPasscode) pushToCloud(syncPasscode).catch(() => { /* offline - local cache still saved */ });
+}
+
+/* ── Cross-device sync (Vercel KV, keyed by passcode) ── */
+async function pullFromCloud(passcode) {
+  const res = await fetch('/api/portfolios', { headers: { 'x-passcode': passcode } }).then(r => r.json());
+  if (!res.ok) throw new Error(res.error || 'Sync failed');
+  return res.portfolios; // array, or null if nothing saved yet under this passcode
+}
+
+async function pushToCloud(passcode) {
+  const res = await fetch('/api/portfolios', {
+    method:  'POST',
+    headers: { 'content-type': 'application/json', 'x-passcode': passcode },
+    body:    JSON.stringify({ portfolios: portfolios.map(p => ({ id: p.id, name: p.name, csv: p._csv })) }),
+  }).then(r => r.json());
+  if (!res.ok) throw new Error(res.error || 'Sync failed');
+}
+
+function adoptCloudPortfolios(cloudPortfolios) {
+  portfolios = [];
+  activeIds  = new Set();
+  cloudPortfolios.forEach(item => {
+    const parsed = parseCSV(item.csv);
+    if (parsed.stocks.length) {
+      portfolios.push({ id: item.id, name: item.name, stocks: parsed.stocks, cash: parsed.cash, _csv: item.csv });
+      activeIds.add(item.id);
+    }
+  });
+  localStorage.setItem('portfoliosData', JSON.stringify(
+    portfolios.map(p => ({ id: p.id, name: p.name, csv: p._csv }))
+  ));
+}
+
+async function autoSyncOnBoot() {
+  try {
+    const cloudPortfolios = await pullFromCloud(syncPasscode);
+    if (cloudPortfolios && cloudPortfolios.length) adoptCloudPortfolios(cloudPortfolios);
+    else if (portfolios.length) await pushToCloud(syncPasscode); // first device to sync - seed the cloud
+  } catch (e) { /* offline - fall back to local cache silently */ }
+}
+
+async function connectSync(rawPasscode) {
+  const passcode = rawPasscode.trim();
+  if (passcode.length < 4) { showSyncStatus('Passcode must be at least 4 characters.', true); return; }
+
+  showSyncStatus('Connecting…', false, true);
+  try {
+    const cloudPortfolios = await pullFromCloud(passcode);
+    if (cloudPortfolios && cloudPortfolios.length) adoptCloudPortfolios(cloudPortfolios);
+
+    syncPasscode = passcode;
+    localStorage.setItem('syncPasscode', passcode);
+    if (!cloudPortfolios || !cloudPortfolios.length) await pushToCloud(passcode); // seed cloud from this device
+
+    applyActivePortfolio();
+    renderPortfolioBar();
+    updateCsvPathLabel();
+    firstLoad = true;
+    if (portfolio.length) { await refresh(); startAutoRefresh(); }
+    else { buildTable(); buildTiles(); renderSummary(); renderHeroBanner(); renderAccountStrips(); }
+
+    showSyncStatus('Synced — this device is now linked.', false);
+    updateSyncButton();
+  } catch (e) {
+    showSyncStatus(e.message, true);
+  }
+}
+
+function disconnectSync() {
+  syncPasscode = null;
+  localStorage.removeItem('syncPasscode');
+  updateSyncButton();
+  closeSyncModal();
+}
+
+function openSyncModal() {
+  document.getElementById('sync-backdrop').classList.remove('hidden');
+  document.getElementById('sync-input').value = syncPasscode || '';
+  document.getElementById('sync-disconnect').classList.toggle('hidden', !syncPasscode);
+  showSyncStatus(syncPasscode
+    ? 'This device is linked. Enter the same passcode on another device to bring your portfolios there.'
+    : 'Set a passcode to sync your portfolios across devices — no re-uploading needed.', false);
+}
+
+function closeSyncModal() {
+  document.getElementById('sync-backdrop').classList.add('hidden');
+}
+
+function showSyncStatus(text, isError, isLoading) {
+  const el = document.getElementById('sync-status');
+  el.textContent = text;
+  el.classList.toggle('sync-error', !!isError);
+  el.classList.toggle('sync-loading', !!isLoading);
+}
+
+function updateSyncButton() {
+  const btn = document.getElementById('btn-sync');
+  btn.classList.toggle('btn-sync-active', !!syncPasscode);
+  btn.title = syncPasscode ? 'Synced across devices' : 'Sync portfolios across devices';
 }
 
 function updateCsvPathLabel() {

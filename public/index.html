@@ -26,6 +26,7 @@
           <span id="market-label">—</span>
         </div>
         <button id="btn-demo" class="btn btn-secondary" onclick="toggleDemo()">🎭 Demo</button>
+        <button id="btn-sync" class="btn btn-secondary" title="Sync portfolios across devices">🔗 Sync</button>
         <button id="btn-load" class="btn btn-secondary">Load CSV</button>
         <button id="btn-refresh" class="btn btn-primary">Refresh</button>
         <div id="refresh-ring" class="refresh-ring" title="Next auto-refresh">
@@ -198,6 +199,28 @@
       <span id="market-status"></span>
     </footer>
 
+  </div>
+
+  <!-- Sync Modal -->
+  <div id="sync-backdrop" class="modal-backdrop hidden">
+    <div class="sync-modal">
+      <div class="sync-modal-header">
+        <span class="sync-modal-title">🔗 Sync Across Devices</span>
+        <button id="sync-close" class="modal-close" aria-label="Close">&#x2715;</button>
+      </div>
+      <p class="sync-modal-desc">
+        Pick a passcode. Enter the same one on any other device to bring your portfolios
+        there — no re-uploading CSVs. Anyone with the passcode can see this data, so pick
+        something only you know.
+      </p>
+      <form id="sync-form" class="sync-form" autocomplete="off">
+        <input id="sync-input" class="sync-input" type="password" minlength="4" maxlength="100"
+               placeholder="Enter a passcode (min 4 characters)" />
+        <button class="btn btn-primary" type="submit">Connect</button>
+      </form>
+      <div id="sync-status" class="sync-status"></div>
+      <button id="sync-disconnect" class="sync-disconnect hidden" type="button">Disconnect this device</button>
+    </div>
   </div>
 
   <!-- Stock Detail Modal -->
