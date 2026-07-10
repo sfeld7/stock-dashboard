@@ -16,24 +16,33 @@ async function fetchName(ticker) {
 }
 
 async function fetchOneTicker(ticker) {
-  const [, r] = await Promise.all([
-    fetchName(ticker),
-    httpsGet(`https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${FINNHUB_KEY}`),
-  ]);
-  const q = JSON.parse(r.body);
-  if (q.error) throw new Error(q.error);
-  if (!q.c)    throw new Error('No price data');
-  return {
-    symbol:    ticker,
-    shortName: nameCache[ticker] || ticker,
-    price:     q.c,
-    change:    q.d,
-    changePct: q.dp,
-    open:      q.o,
-    high:      q.h,
-    low:       q.l,
-    prevClose: q.pc,
-  };
+  for (let attempt = 0; ; attempt++) {
+    const [, r] = await Promise.all([
+      fetchName(ticker),
+      httpsGet(`https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${FINNHUB_KEY}`),
+    ]);
+    const q = JSON.parse(r.body);
+    if (q.error) {
+      // Retry once on rate-limit errors — large portfolios can outrun Finnhub's free-tier quota mid-batch
+      if (attempt === 0 && r.status === 429) {
+        await new Promise(res => setTimeout(res, 1200));
+        continue;
+      }
+      throw new Error(q.error);
+    }
+    if (!q.c) throw new Error('No price data');
+    return {
+      symbol:    ticker,
+      shortName: nameCache[ticker] || ticker,
+      price:     q.c,
+      change:    q.d,
+      changePct: q.dp,
+      open:      q.o,
+      high:      q.h,
+      low:       q.l,
+      prevClose: q.pc,
+    };
+  }
 }
 
 module.exports = async (req, res) => {

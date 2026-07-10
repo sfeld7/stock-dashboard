@@ -4,6 +4,10 @@ const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 
 const MAX_ANALYST_TICKERS = 25;
 const ANALYST_BATCH_SIZE  = 8;
+const RATINGS_TTL_MS      = 12 * 60 * 60 * 1000; // analyst trends only update ~monthly
+
+// Persists across warm invocations within the same serverless instance
+const ratingsCache = new Map(); // ticker -> { data, ts }
 
 const SYSTEM_PROMPT = `You are a portfolio analyst embedded in a personal stock dashboard.
 You'll be given a JSON snapshot of the user's current holdings (tickers, shares, market
@@ -26,8 +30,16 @@ Keep the answer under 200 words unless the question requires a breakdown or list
 
 async function fetchAnalystRatings(tickers) {
   const ratings = {};
-  for (let i = 0; i < tickers.length; i += ANALYST_BATCH_SIZE) {
-    const batch   = tickers.slice(i, i + ANALYST_BATCH_SIZE);
+  const now     = Date.now();
+
+  const toFetch = tickers.filter(t => {
+    const cached = ratingsCache.get(t);
+    if (cached && now - cached.ts < RATINGS_TTL_MS) { ratings[t] = cached.data; return false; }
+    return true;
+  });
+
+  for (let i = 0; i < toFetch.length; i += ANALYST_BATCH_SIZE) {
+    const batch   = toFetch.slice(i, i + ANALYST_BATCH_SIZE);
     const results = await Promise.allSettled(batch.map(ticker =>
       httpsGet(`https://finnhub.io/api/v1/stock/recommendation?symbol=${encodeURIComponent(ticker)}&token=${FINNHUB_KEY}`)
     ));
@@ -38,11 +50,13 @@ async function fetchAnalystRatings(tickers) {
         const trend = JSON.parse(r.value.body);
         if (Array.isArray(trend) && trend.length) {
           const { period, strongBuy, buy, hold, sell, strongSell } = trend[0];
-          ratings[ticker] = { period, strongBuy, buy, hold, sell, strongSell };
+          const data = { period, strongBuy, buy, hold, sell, strongSell };
+          ratings[ticker] = data;
+          ratingsCache.set(ticker, { data, ts: now });
         }
       } catch { /* skip tickers with no usable data */ }
     });
-    if (i + ANALYST_BATCH_SIZE < tickers.length) await new Promise(r => setTimeout(r, 400));
+    if (i + ANALYST_BATCH_SIZE < toFetch.length) await new Promise(r => setTimeout(r, 400));
   }
   return ratings;
 }
