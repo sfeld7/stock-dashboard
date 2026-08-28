@@ -311,6 +311,16 @@ function calcPortfolioValue(p) {
   return eq + cash;
 }
 
+function fmtPriceTime(unixSec) {
+  if (!unixSec) return '';
+  const d  = new Date(unixSec * 1000);
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const dy = String(d.getDate()).padStart(2, '0');
+  const hr = String(d.getHours()).padStart(2, '0');
+  const mn = String(d.getMinutes()).padStart(2, '0');
+  return `${mo}/${dy} ${hr}:${mn}`;
+}
+
 function fmtM(n) {
   if (!n || isNaN(n)) return '';
   const v = demoMode ? n * demoFactor : n;
@@ -735,7 +745,8 @@ function updateTiles() {
     pill.className   = `tile-change-pill ${dc}`;
     pill.textContent = r.changePct != null ? (r.changePct >= 0 ? '+' : '') + r.changePct.toFixed(2) + '%' : '—';
     const dayEl = tile.querySelector('.tile-day-gain');
-    dayEl.textContent = isNaN(r.dayGain) ? '—' : (r.dayGain >= 0 ? '+' : '') + fmt$(r.dayGain) + ' today';
+    const ts = fmtPriceTime(quotes[r.ticker]?.t);
+    dayEl.textContent = isNaN(r.dayGain) ? '—' : (r.dayGain >= 0 ? '+' : '') + fmt$(r.dayGain) + (ts ? '  ' + ts : '');
     dayEl.className   = `tile-day-hero ${dc} tile-day-gain`;
     tile.querySelector('.tile-mkt-val').textContent = isNaN(r.mktValue) ? '—' : fmt$(r.mktValue);
     const pc = dirClass(r.pnl);
@@ -776,7 +787,7 @@ function tileHTML(r) {
         <div class="tile-mkt-label">Market Value</div>
       </div>
       <div class="tile-day-hero ${dc} tile-day-gain">
-        ${isNaN(r.dayGain) ? '—' : (r.dayGain >= 0 ? '+' : '') + fmt$(r.dayGain) + ' today'}
+        ${isNaN(r.dayGain) ? '—' : (r.dayGain >= 0 ? '+' : '') + fmt$(r.dayGain) + (fmtPriceTime(quotes[r.ticker]?.t) ? '  ' + fmtPriceTime(quotes[r.ticker]?.t) : '')}
       </div>
       <div class="tile-price-sub">Price: ${displayPrice}</div>
       <div class="tile-stats">

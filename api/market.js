@@ -27,7 +27,7 @@ module.exports = async (req, res) => {
         if (!result) return { symbol, label, error: true };
         const meta   = result.meta;
         const price  = meta.regularMarketPrice;
-        const prev   = meta.chartPreviousClose ?? meta.previousClose;
+        const prev   = meta.regularMarketPreviousClose ?? meta.chartPreviousClose ?? meta.previousClose;
         const change = price - prev;
         const pct    = prev ? (change / prev) * 100 : 0;
         return { symbol, label, price, change, pct, prev };

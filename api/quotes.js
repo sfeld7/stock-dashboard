@@ -41,6 +41,7 @@ async function fetchOneTicker(ticker) {
       high:      q.h,
       low:       q.l,
       prevClose: q.pc,
+      t:         q.t,   // unix timestamp of last trade
     };
   }
 }
