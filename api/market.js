@@ -27,7 +27,17 @@ module.exports = async (req, res) => {
         if (!result) return { symbol, label, error: true };
         const meta   = result.meta;
         const price  = meta.regularMarketPrice;
-        const prev   = meta.regularMarketPreviousClose ?? meta.chartPreviousClose ?? meta.previousClose;
+
+        // Prefer actual bar closes over meta fields — meta previousClose
+        // for indices can reference an unexpected anchor date
+        const closes = result.indicators?.quote?.[0]?.close ?? [];
+        const validCloses = closes.filter(c => c != null);
+        // With range=2d interval=1d we get [yesterday_close, today_partial]
+        // Use the last complete bar before today's live price as prev
+        const prev =
+          validCloses.length >= 2 ? validCloses[validCloses.length - 2] :
+          meta.regularMarketPreviousClose ?? meta.chartPreviousClose ?? meta.previousClose;
+
         const change = price - prev;
         const pct    = prev ? (change / prev) * 100 : 0;
         return { symbol, label, price, change, pct, prev };
