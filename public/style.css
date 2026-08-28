@@ -629,6 +629,51 @@ tbody tr { cursor: pointer; }
 }
 .hero-portfolio .hero-label { color: rgba(255,255,255,.65); }
 
+/* ── Price freshness badge ── */
+.hero-price-age {
+  margin-top: 6px; font-size: 10px; font-weight: 500;
+  letter-spacing: 0.4px; font-variant-numeric: tabular-nums;
+}
+.hero-price-age.age-live   { color: #4ade80; }
+.hero-price-age.age-closed { color: #7ab0d4; }
+.hero-price-age.age-ok     { color: rgba(255,255,255,.5); }
+.hero-price-age.age-stale  { color: #fbbf24; animation: demoPulse 2s ease-in-out infinite; }
+
+/* ── Portfolio layout (donut + tiles) ── */
+.portfolio-layout {
+  display: flex; gap: 28px; align-items: flex-start;
+}
+.donut-panel {
+  flex-shrink: 0; width: 200px;
+  background: var(--bg1); border: 0.5px solid var(--line);
+  border-radius: 12px; padding: 18px 16px 14px;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.donut-title {
+  font-size: 9px; font-weight: 700; letter-spacing: 1.5px;
+  text-transform: uppercase; color: var(--muted);
+  align-self: flex-start;
+}
+#donut-legend {
+  width: 100%; display: flex; flex-direction: column; gap: 5px;
+}
+.donut-leg-row {
+  display: grid; grid-template-columns: 8px 1fr auto;
+  align-items: center; gap: 7px;
+}
+.donut-leg-dot {
+  width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0;
+}
+.donut-leg-ticker {
+  font-size: 11px; font-weight: 500; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.donut-leg-pct {
+  font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.tiles-section { flex: 1; min-width: 0; }
+
 /* ── Holdings Tiles ── */
 .home-section-title {
   font-size: 11px; font-weight: 600; color: var(--muted);

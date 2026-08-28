@@ -16,6 +16,7 @@ let marketData     = null;
 let demoMode       = false;
 let demoFactor     = 1;
 let syncPasscode   = localStorage.getItem('syncPasscode') || null;
+let lastFetchTime  = null;
 const INTERVAL     = 300;
 
 /* ── Boot ── */
@@ -46,6 +47,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   initModal();
   updateMarketStatus();
   setInterval(updateMarketStatus, 30_000);
+  setInterval(updatePriceAge, 60_000);
 
   // Load saved portfolios from localStorage
   const saved = localStorage.getItem('portfoliosData');
@@ -669,10 +671,12 @@ async function refresh() {
   if (!res.ok) { showError('Fetch failed: ' + res.error); return; }
   hideError();
   quotes = { ...quotes, ...res.quotes }; // merge — preserve quotes from other portfolios
-  if (firstLoad) { buildTable(); buildTiles(); fetchMarket(); firstLoad = false; }
-  else           { updateTableCells(); updateTiles(); }
+  lastFetchTime = Date.now();
+  if (firstLoad) { buildTable(); buildTiles(); renderDonut(); fetchMarket(); firstLoad = false; }
+  else           { updateTableCells(); updateTiles(); renderDonut(); }
   renderSummary();
   renderHeroBanner();
+  updatePriceAge();
   renderAccountStrips();
   renderMovers();
   renderPortfolioBar(); // update AUM value in All tab
@@ -724,6 +728,7 @@ function updateTiles() {
     if (!tile) return;
     const dc = dirClass(r.change);
     tile.className = `holding-tile tile-${dc}`;
+    tile.style.borderTop = `3px solid ${tileHeatBorder(r.changePct)}`;
     const displayPrice = r.price ? fmt$(r.price) : fmt$(r.mktValue / r.shares);
     tile.querySelector('.tile-price-sub').textContent = 'Price: ' + displayPrice;
     const pill = tile.querySelector('.tile-change-pill');
@@ -743,13 +748,23 @@ function updateTiles() {
   });
 }
 
+function tileHeatBorder(changePct) {
+  if (changePct == null || isNaN(changePct)) return 'rgba(180,200,220,.18)';
+  if (changePct >= 2)    return 'rgba(74,222,128,.85)';
+  if (changePct >= 0.5)  return 'rgba(74,222,128,.45)';
+  if (changePct >= -0.5) return 'rgba(180,200,220,.18)';
+  if (changePct >= -2)   return 'rgba(248,113,113,.45)';
+  return                        'rgba(248,113,113,.85)';
+}
+
 function tileHTML(r) {
   const dc  = dirClass(r.change);
   const pc  = dirClass(r.pnl);
   const pct = r.changePct != null ? (r.changePct >= 0 ? '+' : '') + r.changePct.toFixed(2) + '%' : '—';
   const displayPrice = r.price ? fmt$(r.price) : fmt$(r.mktValue / r.shares);
+  const heat = tileHeatBorder(r.changePct);
   return `
-    <div class="holding-tile tile-${dc}" data-ticker="${r.ticker}">
+    <div class="holding-tile tile-${dc}" data-ticker="${r.ticker}" style="border-top:3px solid ${heat}">
       <div class="tile-header">
         <div class="tile-badge ${dc}">${r.ticker.slice(0, 4)}</div>
         <span class="tile-change-pill ${dc}">${pct}</span>
@@ -1061,6 +1076,94 @@ function renderAccountStrips() {
       <div class="astrip-gain ${pc}">${pnl >= 0 ? '+' : ''}${fmt$(pnl)}<span class="astrip-pct"> (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)</span> <span class="astrip-label">all time</span></div>
     </div>`;
   }).join('');
+}
+
+/* ── Price freshness indicator ── */
+function updatePriceAge() {
+  const el = document.getElementById('hero-price-age');
+  if (!el) return;
+  if (!lastFetchTime) { el.textContent = ''; return; }
+
+  const isOpen  = document.getElementById('market-dot')?.classList.contains('open');
+  const ageMs   = Date.now() - lastFetchTime;
+  const ageMin  = Math.floor(ageMs / 60_000);
+  const ageHrs  = Math.floor(ageMs / 3_600_000);
+  const ageDays = Math.floor(ageMs / 86_400_000);
+
+  let text, cls;
+  if (ageDays >= 1) {
+    text = `⚠ Prices from ${ageDays} day${ageDays > 1 ? 's' : ''} ago — refresh`;
+    cls  = 'age-stale';
+  } else if (ageHrs >= 2) {
+    text = `⚠ Prices from ${ageHrs}h ago — refresh`;
+    cls  = 'age-stale';
+  } else if (!isOpen && ageMin < 5) {
+    const t = new Date(lastFetchTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    text = `Market closed · last close ${t}`;
+    cls  = 'age-closed';
+  } else if (!isOpen) {
+    text = `Market closed · updated ${ageMin}m ago`;
+    cls  = 'age-closed';
+  } else if (ageMin < 6) {
+    text = '● Live';
+    cls  = 'age-live';
+  } else {
+    text = `Updated ${ageMin}m ago`;
+    cls  = 'age-ok';
+  }
+
+  el.textContent = text;
+  el.className   = `hero-price-age ${cls}`;
+}
+
+/* ── Allocation donut ── */
+const DONUT_COLORS = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4','#f97316','#a78bfa'];
+
+function renderDonut() {
+  const svgEl = document.getElementById('donut-chart');
+  const legEl = document.getElementById('donut-legend');
+  if (!svgEl || !legEl) return;
+
+  const rows = sortedRows()
+    .filter(r => !isNaN(r.mktValue) && r.mktValue > 0)
+    .sort((a, b) => b.mktValue - a.mktValue)
+    .slice(0, 8);
+  if (!rows.length) return;
+
+  const cashVal  = calcCashTotal();
+  const stockSum = rows.reduce((s, r) => s + r.mktValue, 0);
+  const grand    = stockSum + cashVal;
+
+  const slices = rows.map((r, i) => ({ label: r.ticker, val: r.mktValue, color: DONUT_COLORS[i] }));
+  if (cashVal > 0) slices.push({ label: 'Cash', val: cashVal, color: '#64748b' });
+
+  const cx = 90, cy = 90, R = 78, ri = 50;
+  let angle = -Math.PI / 2;
+  const paths = slices.map(s => {
+    const sweep = (s.val / grand) * 2 * Math.PI;
+    const end   = angle + sweep;
+    const large = sweep > Math.PI ? 1 : 0;
+    const x1 = cx + R  * Math.cos(angle), y1 = cy + R  * Math.sin(angle);
+    const x2 = cx + R  * Math.cos(end),   y2 = cy + R  * Math.sin(end);
+    const x3 = cx + ri * Math.cos(end),   y3 = cy + ri * Math.sin(end);
+    const x4 = cx + ri * Math.cos(angle), y4 = cy + ri * Math.sin(angle);
+    const d   = `M${x1},${y1} A${R},${R} 0 ${large} 1 ${x2},${y2} L${x3},${y3} A${ri},${ri} 0 ${large} 0 ${x4},${y4} Z`;
+    angle = end;
+    return `<path d="${d}" fill="${s.color}" opacity="0.88"/>`;
+  });
+
+  const center = `<text x="${cx}" y="${cy-7}" text-anchor="middle" font-size="8" font-weight="600" letter-spacing="1" fill="#7ab0d4" font-family="-apple-system,sans-serif">TOTAL</text>
+    <text x="${cx}" y="${cy+12}" text-anchor="middle" font-size="13" font-weight="300" fill="#eaf2fa" font-family="-apple-system,sans-serif">${fmtM(grand)}</text>`;
+
+  svgEl.innerHTML = paths.join('') + center;
+
+  legEl.innerHTML = slices.map(s =>
+    `<div class="donut-leg-row">
+       <span class="donut-leg-dot" style="background:${s.color}"></span>
+       <span class="donut-leg-ticker">${s.label}</span>
+       <span class="donut-leg-pct">${(s.val / grand * 100).toFixed(1)}%</span>
+     </div>`
+  ).join('');
 }
 
 /* ── Top movers ── */
